@@ -19,7 +19,6 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = this;
-        PythonPathTextBox.Text = "python";
     }
 
     private void BrowseInput_Click(object sender, RoutedEventArgs e)
