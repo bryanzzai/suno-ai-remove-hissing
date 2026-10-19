@@ -55,6 +55,10 @@ Or run `START_WINDOWS.bat` from the repository root.
 
 ## Build a Windows executable
 
+Run `BUILD_WINDOWS.bat` from the repository root. It publishes a self-contained Windows x64 executable to `dist\SunoAiRemoveHissing-win-x64`.
+
+Equivalent command:
+
 ```powershell
 dotnet publish src\SunoAiRemoveHissing\SunoAiRemoveHissing.csproj -c Release -r win-x64 --self-contained true
 ```
