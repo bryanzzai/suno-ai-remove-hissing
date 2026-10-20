@@ -1,33 +1,38 @@
 # Suno AI Remove Hissing
 
-Windows desktop batch tool for reducing metallic hiss and harsh upper-frequency artifacts in Suno tracks. It keeps the source files untouched and writes cleaned 24-bit WAV files to a separate output folder.
+Windows desktop batch tool for reducing metallic hiss and harsh upper-frequency artifacts in Suno tracks. It keeps the source files untouched and writes a cleaned WAV, a `REMOVED` WAV, and a JSON report for every selected song.
 
 ## What it does
 
 1. Scans a selected input folder recursively for common audio formats.
-2. Uses Demucs on the NVIDIA GPU to estimate `vocals` and `no_vocals` stems.
-3. Applies a conservative, frequency-local spectral repair only to the vocal stem.
-4. Recombines the repaired vocal with the accompaniment and writes `<name>_CLEANED.wav`.
+2. Lets the user tick exactly the tracks to process.
+3. Applies one or both direct whole-mix effects.
+4. Writes each result in its own output folder, alongside the exact removed-signal WAV and a JSON report.
 
-The goal is the metallic fizz / unstable high partials that can occur in generated vocals. This is **not** a general master-noise remover: a high setting can soften vocal consonants or airy detail. Begin with the defaults and compare results before batch-processing a library.
+The goal is the metallic fizz / unstable high partials that can occur in generated tracks. The `REMOVED` WAV is an inspection tool: it is exactly source minus final result, not an estimated stem.
 
 ## Architecture
 
 - `src/SunoAiRemoveHissing` — .NET 10 WPF UI: folder selection, scan table, settings, process lifecycle, cancellation and per-file statuses.
-- `backend/SunoClean_AI.py` — CUDA/Demucs cleanup engine, invoked as a subprocess by the UI.
+- `backend/SunoClean_AI.py` — NumPy/SciPy whole-mix DSP engine, invoked as a subprocess by the UI.
 - `ffmpeg` — input decoding and 24-bit WAV encoding.
 
 The app does not use Whisper. Whisper transcribes speech; it is not an audio restoration model.
+
+## Why Demucs was removed
+
+The first experiments used Demucs to split a generated mix into estimated `vocals` and `no_vocals` stems. A useful food analogy changed the design: source separation would be appropriate if we could send an undercooked steak back to the kitchen, but a completed Suno mix is closer to øllebrød — its ingredients are already blended together. Demucs can only estimate those ingredients and recombining the estimates adds another uncertain processing stage.
+
+The successful whole-mix dynamic test proved that the target artifacts can be reduced directly, without separation or GPU inference. Demucs is therefore deliberately not part of the current project.
 
 ## Prerequisites
 
 - Windows 10/11
 - .NET 10 SDK (for running from source)
-- Python 3.11 with CUDA-enabled PyTorch
-- NVIDIA GPU supported by the selected PyTorch CUDA build
+- Python 3.11 or newer
 - FFmpeg available in `PATH`
 
-Create a Python environment and install the backend dependencies. Install a CUDA-enabled PyTorch build appropriate for the system first, then install the remaining dependencies:
+Create a Python environment and install the backend dependencies:
 
 ```powershell
 py -3.11 -m venv .venv
@@ -36,7 +41,7 @@ pip install --upgrade pip
 pip install -r backend\requirements.txt
 ```
 
-The UI asks for the `python.exe` belonging to that environment. It stops instead of silently using CPU if CUDA is unavailable.
+The UI asks for the `python.exe` belonging to that environment. Processing runs directly on the CPU; no CUDA setup is required.
 
 ## Run
 
@@ -48,14 +53,20 @@ Or run `START_WINDOWS.bat` from the repository root.
 
 ## Controls
 
-- **Strength** — maximum spectral suppression, from 1 (gentle) to 6 (strong).
-- **Blend** — how much of the repaired vocal is used, from 0 (off) to 1 (full repair).
-- **GPU segment** — Demucs chunk length. Start at 7; reduce to 6 or lower if GPU memory is exhausted.
-- **Replace existing cleaned files** — off by default; preserves previous output until explicitly enabled.
-- **Harmonic de-fizzer** — direct whole-mix test; no Demucs. It finds unusually prominent narrow spectral ridges at 3.5–11 kHz relative to neighbouring frequency bins and reduces them by up to -6 dB. This first version is deliberately strong and does not claim to identify a singer's true fundamental; use its removed-signal WAV to hear whether it is removing metallic fizz or wanted musical material.
-- **Dynamic whole-mix proof** — does not use Demucs. It watches the entire mix at 1.8–4.0 kHz and, when a short transient exceeds its local one-second median by 4 dB, reduces that band by up to -3 dB with a 250 ms hold/release. It writes three files: `<name>_DYNAMIC_1P8_4K_TEST.wav`, `<name>_REMOVED_BY_DYNAMIC_TEST.wav` (the exact difference between source and result), and a JSON event report. This is an intentionally audible diagnostic renderer, not yet the final de-noiser.
+- **Harmonic de-fizzer** — finds unusually prominent narrow spectral ridges at 3.5–11 kHz relative to neighbouring frequency bins and reduces them by up to -6 dB. This first version is deliberately strong and does not claim to identify a singer's true fundamental; use its removed-signal WAV to hear whether it is removing metallic fizz or wanted musical material.
+- **Dynamic 1.8–4 kHz** — watches the whole mix and, when a short transient exceeds its local one-second median by 4 dB, reduces that band by up to -3 dB with a 250 ms release.
+- **Replace existing output files** — off by default; preserves previous result folders until explicitly enabled.
 
-The two whole-mix tests can be enabled together. Their combined output is `<name>_DYNAMIC_AND_HARMONIC_TEST.wav`; its `REMOVED` file is always the exact original-minus-final difference for that specific combination.
+The effects can be enabled together. Every selected song gets its own folder, preserving source subfolders, for example:
+
+```text
+Output\Velvet Paradise [ IX]\
+  DYNAMIC_AND_HARMONIC.wav
+  REMOVED_BY_DYNAMIC_AND_HARMONIC.wav
+  DYNAMIC_AND_HARMONIC.json
+```
+
+The `REMOVED` file is always the exact original-minus-final difference for that specific combination.
 
 ## Build a Windows executable
 
@@ -67,4 +78,4 @@ Equivalent command:
 dotnet publish src\SunoAiRemoveHissing\SunoAiRemoveHissing.csproj -c Release -r win-x64 --self-contained true
 ```
 
-The published application still requires its Python/Demucs environment and FFmpeg. Packaging that GPU runtime is deliberately deferred: PyTorch/Demucs CUDA bundles are large and must match the target NVIDIA driver environment.
+The published application still requires its Python environment and FFmpeg.
