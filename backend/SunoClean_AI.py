@@ -173,13 +173,13 @@ def dynamic_full_mix_test(audio: np.ndarray, rate: int, profile: int) -> tuple[n
     return output, report
 
 
-def output_path(output_root: Path, relative: Path, mode: str) -> Path:
+def output_path(output_root: Path, relative: Path, mode: str, output_format: str) -> Path:
     suffixes = {
-        "dynamic": "_D.wav",
-        "harmonic": "_H.wav",
-        "dynamic_harmonic": "_D&H.wav",
+        "dynamic": "_D",
+        "harmonic": "_H",
+        "dynamic_harmonic": "_D&H",
     }
-    return (output_root / relative.parent / relative.stem / f"{relative.stem}{suffixes[mode]}").resolve()
+    return (output_root / relative.parent / relative.stem / f"{relative.stem}{suffixes[mode]}.{output_format}").resolve()
 
 
 def clean_file(source: Path, destination: Path, dynamic_profile: int, harmonic_profile: int) -> None:
@@ -210,7 +210,15 @@ def clean_file(source: Path, destination: Path, dynamic_profile: int, harmonic_p
         run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", intermediate,
              "-c:a", "pcm_s24le", staged])
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(staged, destination)
+        if destination.suffix.lower() == ".m4a":
+            # Processed audio is input 0; input 1 supplies source tags and cover art.
+            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                 "-i", staged, "-i", source,
+                 "-map", "0:a:0", "-map", "1:v?", "-map_metadata", "1",
+                 "-c:a", "aac", "-b:a", "256k", "-c:v", "copy",
+                 "-disposition:v:0", "attached_pic", "-movflags", "+faststart", destination])
+        else:
+            shutil.copy2(staged, destination)
         removed_intermediate = workspace / "removed_float.wav"
         wavfile.write(removed_intermediate, rate, removed.astype(np.float32))
         for suffix in ("_D&H", "_D", "_H"):
@@ -251,13 +259,15 @@ def collect_files(input_root: Path, output_root: Path, selected_list: Path) -> l
 def main() -> int:
     parser = argparse.ArgumentParser(description="Whole-mix artifact reduction for selected Suno tracks. Originals remain untouched.")
     parser.add_argument("--input-root", required=True, type=Path, help="Folder containing source audio")
-    parser.add_argument("--output-root", required=True, type=Path, help="Folder for cleaned WAV output")
+    parser.add_argument("--output-root", required=True, type=Path, help="Folder for cleaned output")
     parser.add_argument("--selected-list", required=True, type=Path,
                         help="UTF-8 text file containing selected paths relative to input root")
     parser.add_argument("--dynamic-profile", required=True, type=int, choices=range(0, 5),
                         help="0=Off, 1=Light, 2=Normal, 3=Strong, 4=Brutal")
     parser.add_argument("--harmonic-profile", required=True, type=int, choices=range(0, 5),
                         help="0=Off, 1=Light, 2=Normal, 3=Strong, 4=Brutal")
+    parser.add_argument("--output-format", required=True, choices=("wav", "m4a"),
+                        help="Cleaned output format. REMOVED output is always WAV.")
     parser.add_argument("--force", action="store_true", help="Replace existing output files")
     arguments = parser.parse_args()
 
@@ -284,7 +294,7 @@ def main() -> int:
         mode_key = ("dynamic_harmonic" if arguments.dynamic_profile and arguments.harmonic_profile
                     else "dynamic" if arguments.dynamic_profile
                     else "harmonic")
-        destination = output_path(output_root, relative, mode_key)
+        destination = output_path(output_root, relative, mode_key, arguments.output_format)
         relative_text = str(relative).replace("\\", "/")
         if destination.exists() and not arguments.force:
             emit("skip", index, len(files), relative_text, "Skipped existing cleaned file")
