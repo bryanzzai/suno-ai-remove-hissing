@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
-using Microsoft.Win32;
 using SunoAiRemoveHissing.Models;
 using SunoAiRemoveHissing.Services;
 
@@ -35,12 +34,6 @@ public partial class MainWindow : Window
     {
         var selected = SelectFolder("Choose the folder for cleaned files", OutputPathTextBox.Text);
         if (selected is not null) OutputPathTextBox.Text = selected;
-    }
-
-    private void BrowsePython_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog { Title = "Choose python.exe", Filter = "Python executable|python.exe|All files|*.*" };
-        if (dialog.ShowDialog(this) == true) PythonPathTextBox.Text = dialog.FileName;
     }
 
     private string? SelectFolder(string title, string current)
@@ -90,7 +83,10 @@ public partial class MainWindow : Window
         }
         var selected = Tracks.Where(track => track.IsSelected).ToArray();
         if (selected.Length == 0) { ShowInfo("Tick at least one audio file to process."); return; }
+        var python = Path.Combine(AppContext.BaseDirectory, "runtime", "python.exe");
+        var ffmpeg = Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg.exe");
         var script = Path.Combine(AppContext.BaseDirectory, "backend", "SunoClean_AI.py");
+        if (!ValidateBundledTools(python, ffmpeg, script)) return;
         BeginOperation();
         ProgressBar.Minimum = 0;
         ProgressBar.Maximum = selected.Length;
@@ -100,7 +96,7 @@ public partial class MainWindow : Window
         try
         {
             var progress = new Progress<string>(HandleEngineLine);
-            await _engine.RunAsync(PythonPathTextBox.Text.Trim(), script, InputPathTextBox.Text.Trim(), OutputPathTextBox.Text.Trim(),
+            await _engine.RunAsync(python, ffmpeg, script, InputPathTextBox.Text.Trim(), OutputPathTextBox.Text.Trim(),
                 selected.Select(track => track.RelativePath), dynamicProfile, harmonicProfile,
                 outputFormat, OverwriteCheckBox.IsChecked == true, progress, _cts!.Token);
             StatusTextBlock.Text = "Cleanup complete.";
@@ -161,6 +157,17 @@ public partial class MainWindow : Window
         if (!Directory.Exists(InputPathTextBox.Text.Trim())) { ShowInfo("Choose a valid input folder."); return false; }
         if (string.IsNullOrWhiteSpace(OutputPathTextBox.Text)) { ShowInfo("Choose an output folder."); return false; }
         return true;
+    }
+
+    private bool ValidateBundledTools(string python, string ffmpeg, string script)
+    {
+        var missing = new List<string>();
+        if (!File.Exists(python)) missing.Add($"Python runtime: {python}");
+        if (!File.Exists(ffmpeg)) missing.Add($"FFmpeg: {ffmpeg}");
+        if (!File.Exists(script)) missing.Add($"SunoClean backend: {script}");
+        if (missing.Count == 0) return true;
+        ShowInfo("Portable runtime is incomplete. Expected files:\n\n" + string.Join("\n", missing));
+        return false;
     }
 
     private void BeginOperation()
