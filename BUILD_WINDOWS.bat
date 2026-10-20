@@ -33,5 +33,5 @@ echo BUILD COMPLETE
 echo Executable: %OUTPUT%\SunoAiRemoveHissing.exe
 echo Backend:    %OUTPUT%\backend\SunoClean_AI.py
 echo.
-echo The published app still needs Python with CUDA/Demucs and ffmpeg in PATH.
+echo The published app still needs Python with NumPy/SciPy and ffmpeg in PATH.
 exit /b 0
