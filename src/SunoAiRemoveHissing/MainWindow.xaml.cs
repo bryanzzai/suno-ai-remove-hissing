@@ -75,12 +75,6 @@ public partial class MainWindow : Window
     {
         if (Tracks.Count == 0) { ShowInfo("Scan a folder before starting cleanup."); return; }
         if (!ValidateFolders() || !TryReadSettings(out var strength, out var blend, out var segment)) return;
-        if (TinCanTestCheckBox.IsChecked == true && DynamicFullMixTestCheckBox.IsChecked == true)
-        {
-            ShowInfo("Choose either the raw tin-can test or the dynamic whole-mix test, not both.");
-            return;
-        }
-
         var script = Path.Combine(AppContext.BaseDirectory, "backend", "SunoClean_AI.py");
         BeginOperation();
         ProgressBar.Minimum = 0;
@@ -92,8 +86,8 @@ public partial class MainWindow : Window
         {
             var progress = new Progress<string>(HandleEngineLine);
             await _engine.RunAsync(PythonPathTextBox.Text.Trim(), script, InputPathTextBox.Text.Trim(), OutputPathTextBox.Text.Trim(),
-                strength, blend, segment, TinCanTestCheckBox.IsChecked == true, OverwriteCheckBox.IsChecked == true,
-                DynamicFullMixTestCheckBox.IsChecked == true, progress, _cts!.Token);
+                strength, blend, segment, DynamicFullMixTestCheckBox.IsChecked == true,
+                HarmonicDeFizzerCheckBox.IsChecked == true, OverwriteCheckBox.IsChecked == true, progress, _cts!.Token);
             StatusTextBlock.Text = "Cleanup complete.";
         }
         catch (OperationCanceledException) { StatusTextBlock.Text = "Cleanup cancelled."; }
