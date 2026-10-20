@@ -52,8 +52,10 @@ Or run `START_WINDOWS.bat` from the repository root.
 - **Blend** — how much of the repaired vocal is used, from 0 (off) to 1 (full repair).
 - **GPU segment** — Demucs chunk length. Start at 7; reduce to 6 or lower if GPU memory is exhausted.
 - **Replace existing cleaned files** — off by default; preserves previous output until explicitly enabled.
-- **Raw tin-can test** — skips vocal cleanup and applies two fixed reductions only to Demucs' `no_vocals` stem: -3 dB at 1.8–2.2 kHz and -1.5 dB at 2.2–4.0 kHz. It is deliberately static and blunt, intended for A/B evaluation of the drum/rimshot problem.
+- **Harmonic de-fizzer** — direct whole-mix test; no Demucs. It finds unusually prominent narrow spectral ridges at 3.5–11 kHz relative to neighbouring frequency bins and reduces them by up to -6 dB. This first version is deliberately strong and does not claim to identify a singer's true fundamental; use its removed-signal WAV to hear whether it is removing metallic fizz or wanted musical material.
 - **Dynamic whole-mix proof** — does not use Demucs. It watches the entire mix at 1.8–4.0 kHz and, when a short transient exceeds its local one-second median by 4 dB, reduces that band by up to -3 dB with a 250 ms hold/release. It writes three files: `<name>_DYNAMIC_1P8_4K_TEST.wav`, `<name>_REMOVED_BY_DYNAMIC_TEST.wav` (the exact difference between source and result), and a JSON event report. This is an intentionally audible diagnostic renderer, not yet the final de-noiser.
+
+The two whole-mix tests can be enabled together. Their combined output is `<name>_DYNAMIC_AND_HARMONIC_TEST.wav`; its `REMOVED` file is always the exact original-minus-final difference for that specific combination.
 
 ## Build a Windows executable
 
