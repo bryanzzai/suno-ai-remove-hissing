@@ -34,6 +34,7 @@
 
         <GroupBox Grid.Row="2" Header="Repair settings" Padding="12" Margin="0,0,0,14">
             <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="100"/><ColumnDefinition Width="170"/><ColumnDefinition Width="100"/><ColumnDefinition Width="180"/><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                 <TextBlock VerticalAlignment="Center" Text="Strength (1–6)" />
                 <TextBox x:Name="StrengthTextBox" Grid.Column="1" Text="3" VerticalContentAlignment="Center" />
@@ -42,6 +43,8 @@
                 <TextBlock Grid.Column="4" VerticalAlignment="Center" Margin="18,0,0,0" Text="GPU segment (1–7 sec)" />
                 <TextBox x:Name="SegmentTextBox" Grid.Column="5" Text="7" VerticalContentAlignment="Center" />
                 <CheckBox x:Name="OverwriteCheckBox" Grid.Column="6" Margin="18,0,0,0" VerticalAlignment="Center" Content="Replace existing cleaned files" />
+                <CheckBox x:Name="TinCanTestCheckBox" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="7" Margin="0,12,0,0"
+                          Content="Raw tin-can test: apply -3 dB at 1.8–2.2 kHz and -1.5 dB at 2.2–4.0 kHz to accompaniment only. Vocal cleaning is skipped." />
             </Grid>
         </GroupBox>
 
