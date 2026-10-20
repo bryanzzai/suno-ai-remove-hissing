@@ -25,12 +25,25 @@ The first experiments used Demucs to split a generated mix into estimated `vocal
 
 The successful whole-mix dynamic test proved that the target artifacts can be reduced directly, without separation or GPU inference. Demucs is therefore deliberately not part of the current project.
 
-## Prerequisites
+## Portable Windows build
 
-- Windows 10/11
-- .NET 10 SDK (for running from source)
-- Python 3.11 or newer
-- FFmpeg available in `PATH`
+The GitHub Actions artifact is a complete x64 Windows folder. It needs no installed .NET runtime, Python, NumPy, SciPy or FFmpeg, and does not use `PATH`.
+
+```text
+SunoAiRemoveHissing-Portable\
+  SunoAiRemoveHissing.exe
+  backend\SunoClean_AI.py
+  runtime\python.exe
+  runtime\Lib\site-packages\numpy\
+  runtime\Lib\site-packages\scipy\
+  tools\ffmpeg.exe
+```
+
+Keep this layout intact and run `SunoAiRemoveHissing.exe`. The program checks for each required component and reports its exact expected path if the folder is incomplete.
+
+## Run from source
+
+Building from source requires Windows 10/11, the .NET 10 SDK, Python 3.11+ and FFmpeg. The regular source run still needs a portable folder beside the executable, so use `BUILD_PORTABLE.ps1` when creating a runnable build.
 
 Create a Python environment and install the backend dependencies:
 
@@ -41,7 +54,7 @@ pip install --upgrade pip
 pip install -r backend\requirements.txt
 ```
 
-The UI asks for the `python.exe` belonging to that environment. Processing runs directly on the CPU; no CUDA setup is required.
+The build machine uses that Python only to assemble the portable runtime. Processing runs directly on the CPU; no CUDA setup is required.
 
 ## Run
 
@@ -74,17 +87,15 @@ Short suffixes are `_D` for dynamic only, `_H` for harmonic only, and `_D&H` whe
 
 When M4A is selected, only the cleaned file changes extension, for example `Velvet Paradise [ IX ]_D&H.m4a`; the matching `REMOVED` and JSON files remain WAV and JSON.
 
-## Build a Windows executable
+## Build the portable folder
 
-Run `BUILD_WINDOWS.bat` from the repository root. It publishes a self-contained Windows x64 executable to `dist\SunoAiRemoveHissing-win-x64`.
-
-Equivalent command:
+On a Windows build machine with the .NET SDK and Python 3.11+ installed:
 
 ```powershell
-dotnet publish src\SunoAiRemoveHissing\SunoAiRemoveHissing.csproj -c Release -r win-x64 --self-contained true
+.\BUILD_PORTABLE.ps1
 ```
 
-The published application still requires its Python environment and FFmpeg.
+The script publishes the .NET application, downloads the official CPython embeddable distribution, installs NumPy/SciPy into that local runtime, downloads a static FFmpeg build, and verifies both executables. The finished folder is `dist\SunoAiRemoveHissing-Portable`.
 
 ## Local self-contained install
 
@@ -94,7 +105,7 @@ Run this from PowerShell in the repository root to publish directly to `C:\Apps\
 .\INSTALL_LOCAL.ps1
 ```
 
-It replaces only that exact application folder, publishes a self-contained Windows executable, includes `backend\SunoClean_AI.py`, and removes `.pdb` debug-symbol files. To use another application folder below `C:\Apps`:
+It replaces only that exact application folder and publishes the .NET application. For the complete portable folder, use `BUILD_PORTABLE.ps1`. To use another application folder below `C:\Apps`:
 
 ```powershell
 .\INSTALL_LOCAL.ps1 -InstallPath 'C:\Apps\MySunoDenoiser'
