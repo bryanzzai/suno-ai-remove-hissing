@@ -15,7 +15,7 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,16">
             <TextBlock Text="Suno AI Remove Hissing" FontSize="28" FontWeight="SemiBold" />
             <TextBlock Margin="0,4,0,0" Foreground="DimGray"
-                       Text="Local Windows batch processing: Demucs vocal separation plus conservative high-frequency artifact reduction. Originals are never modified." />
+                       Text="Local Windows whole-mix artifact reduction. Originals are never modified." />
         </StackPanel>
 
         <Grid Grid.Row="1" Margin="0,0,0,12">
@@ -32,30 +32,25 @@
             <Button Grid.Row="2" Grid.Column="2" Padding="16,6" Content="Browse…" Click="BrowsePython_Click" />
         </Grid>
 
-        <GroupBox Grid.Row="2" Header="Repair settings" Padding="12" Margin="0,0,0,14">
+        <GroupBox Grid.Row="2" Header="Whole-mix effects" Padding="12" Margin="0,0,0,14">
             <Grid>
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="100"/><ColumnDefinition Width="170"/><ColumnDefinition Width="100"/><ColumnDefinition Width="180"/><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <TextBlock VerticalAlignment="Center" Text="Strength (1–6)" />
-                <TextBox x:Name="StrengthTextBox" Grid.Column="1" Text="3" VerticalContentAlignment="Center" />
-                <TextBlock Grid.Column="2" VerticalAlignment="Center" Margin="18,0,0,0" Text="Blend (0–1)" />
-                <TextBox x:Name="BlendTextBox" Grid.Column="3" Text="0.75" VerticalContentAlignment="Center" />
-                <TextBlock Grid.Column="4" VerticalAlignment="Center" Margin="18,0,0,0" Text="GPU segment (1–7 sec)" />
-                <TextBox x:Name="SegmentTextBox" Grid.Column="5" Text="7" VerticalContentAlignment="Center" />
-                <CheckBox x:Name="OverwriteCheckBox" Grid.Column="6" Margin="18,0,0,0" VerticalAlignment="Center" Content="Replace existing cleaned files" />
-                <CheckBox x:Name="HarmonicDeFizzerCheckBox" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="7" Margin="0,12,0,0"
+                <StackPanel>
+                    <CheckBox x:Name="HarmonicDeFizzerCheckBox"
                           Content="Harmonic de-fizzer: reduce unusually prominent narrow high-frequency ridges in the whole mix by up to -6 dB. Writes result, removed-signal WAV, and JSON report." />
-                <CheckBox x:Name="DynamicFullMixTestCheckBox" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="7" Margin="0,8,0,0"
-                          Content="Dynamic whole-mix proof: detect strong 1.8–4 kHz transients and reduce that band by up to -3 dB for 250 ms. Writes result, removed-signal WAV, and JSON report. Demucs/GPU are not used in this test." />
+                    <CheckBox x:Name="DynamicFullMixTestCheckBox" Margin="0,8,0,0"
+                          Content="Dynamic 1.8–4 kHz: detect strong transients and reduce that band by up to -3 dB for 250 ms. Writes result, removed-signal WAV, and JSON report." />
+                    <CheckBox x:Name="OverwriteCheckBox" Margin="0,8,0,0" Content="Replace existing output files" />
+                </StackPanel>
             </Grid>
         </GroupBox>
 
-        <DataGrid x:Name="AudioGrid" Grid.Row="3" ItemsSource="{Binding Tracks}" AutoGenerateColumns="False" IsReadOnly="True"
+        <DataGrid x:Name="AudioGrid" Grid.Row="3" ItemsSource="{Binding Tracks}" AutoGenerateColumns="False" IsReadOnly="False"
                   CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Audio file" Binding="{Binding FileName}" Width="3*" />
-                <DataGridTextColumn Header="Folder" Binding="{Binding Folder}" Width="3*" />
-                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="2*" />
+                <DataGridCheckBoxColumn Header="Use" Binding="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="55" />
+                <DataGridTextColumn Header="Audio file" Binding="{Binding FileName}" Width="3*" IsReadOnly="True" />
+                <DataGridTextColumn Header="Folder" Binding="{Binding Folder}" Width="3*" IsReadOnly="True" />
+                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="2*" IsReadOnly="True" />
             </DataGrid.Columns>
         </DataGrid>
 
