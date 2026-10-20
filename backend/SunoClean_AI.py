@@ -68,22 +68,48 @@ def repair(channel: np.ndarray, rate: int, strength: float, blend: float) -> np.
     return output[: len(channel)].astype(np.float32)
 
 
-def raw_tin_can_reduction(channel: np.ndarray, rate: int) -> np.ndarray:
-    """Fixed, intentionally blunt accompaniment EQ for A/B evaluation.
+def harmonic_de_fizzer(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dict[str, object]]:
+    """Whole-mix high-partial test, deliberately stronger than the final target.
 
-    This is not a transient detector. It reduces the two requested bands for
-    the entire accompaniment stem: 1.8–2.2 kHz by 3 dB and 2.2–4.0 kHz by
-    1.5 dB. The vocal stem stays untouched.
+    This does not claim to identify a singer's true fundamental.  It finds
+    unusually narrow high-frequency spectral ridges relative to neighbouring
+    frequency bins, then suppresses those ridges by up to 6 dB.  One mono
+    detector controls both channels so the stereo image remains intact.
     """
     nfft = 4096 if rate <= 48000 else 8192
     hop = nfft // 4
-    freqs, _, spectrum = stft(channel, fs=rate, nperseg=nfft, noverlap=nfft - hop, boundary="zeros")
-    gain = np.ones_like(freqs, dtype=np.float32)
-    gain[(freqs >= 1800.0) & (freqs < 2200.0)] = 10.0 ** (-3.0 / 20.0)
-    gain[(freqs >= 2200.0) & (freqs <= 4000.0)] = 10.0 ** (-1.5 / 20.0)
-    _, output = istft(spectrum * gain[:, None], fs=rate, nperseg=nfft, noverlap=nfft - hop,
-                      input_onesided=True, boundary=True)
-    return output[: len(channel)].astype(np.float32)
+    mono = audio.mean(axis=1)
+    freqs, _, detector_spectrum = stft(mono, fs=rate, nperseg=nfft, noverlap=nfft - hop,
+                                       boundary="zeros")
+    magnitude = np.abs(detector_spectrum)
+    local_envelope = median_filter(magnitude, size=(17, 3), mode="nearest")
+    prominence = np.maximum(magnitude / (local_envelope + 1e-9) - 1.0, 0.0)
+    ridge_mask = np.clip(prominence / 1.5, 0.0, 1.0)
+    ramp_up = np.clip((freqs - 3500.0) / 1000.0, 0.0, 1.0)
+    ramp_down = np.clip((11000.0 - freqs) / 1500.0, 0.0, 1.0)
+    target_mask = ridge_mask * (ramp_up * ramp_down)[:, None]
+    target_mask = gaussian_filter1d(target_mask, 0.8, axis=0)
+    target_mask = gaussian_filter1d(target_mask, 0.6, axis=1)
+    gain = 10.0 ** (-(6.0 * target_mask) / 20.0)
+
+    channels = []
+    for channel in range(audio.shape[1]):
+        _, _, spectrum = stft(audio[:, channel], fs=rate, nperseg=nfft, noverlap=nfft - hop,
+                              boundary="zeros")
+        _, output = istft(spectrum * gain, fs=rate, nperseg=nfft, noverlap=nfft - hop,
+                          input_onesided=True, boundary=True)
+        channels.append(output[:len(audio)])
+    output = np.column_stack(channels).astype(np.float32)
+    target_band = (freqs >= 3500.0) & (freqs <= 11000.0)
+    report: dict[str, object] = {
+        "mode": "whole_mix_harmonic_de_fizzer_test",
+        "band_hz": [3500, 11000],
+        "maximum_reduction_db": 6.0,
+        "affected_spectral_cells_percent": round(float(np.mean(target_mask[target_band] >= 0.05) * 100.0), 3),
+        "mean_reduction_db_in_affected_cells": round(float(np.mean(6.0 * target_mask[target_mask >= 0.05])), 3)
+        if np.any(target_mask >= 0.05) else 0.0,
+    }
+    return output, report
 
 
 def dynamic_full_mix_test(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dict[str, object]]:
@@ -156,25 +182,34 @@ def dynamic_full_mix_test(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dic
 def output_path(output_root: Path, relative: Path, mode: str) -> Path:
     suffixes = {
         "clean": "_CLEANED.wav",
-        "tin_can": "_TIN_CAN_TEST.wav",
         "dynamic": "_DYNAMIC_1P8_4K_TEST.wav",
+        "harmonic": "_HARMONIC_DE_FIZZ_TEST.wav",
+        "dynamic_harmonic": "_DYNAMIC_AND_HARMONIC_TEST.wav",
     }
     suffix = suffixes[mode]
     return (output_root / relative.parent / f"{relative.stem}{suffix}").resolve()
 
 
 def clean_file(source: Path, destination: Path, strength: float, blend: float, segment: int,
-               tin_can_test: bool, dynamic_full_mix_test_enabled: bool) -> None:
+               dynamic_full_mix_test_enabled: bool, harmonic_de_fizzer_enabled: bool) -> None:
     with tempfile.TemporaryDirectory(prefix="sunoclean_") as raw_workspace:
         workspace = Path(raw_workspace)
         input_wav = workspace / "input.wav"
         run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", source,
              "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", input_wav])
         dynamic_report = None
-        if dynamic_full_mix_test_enabled:
+        if dynamic_full_mix_test_enabled or harmonic_de_fizzer_enabled:
             rate, original = read_audio(input_wav)
-            output, dynamic_report = dynamic_full_mix_test(original, rate)
+            output = original
+            reports = []
+            if dynamic_full_mix_test_enabled:
+                output, dynamic_report = dynamic_full_mix_test(output, rate)
+                reports.append(dynamic_report)
+            if harmonic_de_fizzer_enabled:
+                output, harmonic_report = harmonic_de_fizzer(output, rate)
+                reports.append(harmonic_report)
             removed = original[:len(output)] - output
+            dynamic_report = {"effects": reports}
         else:
             run([sys.executable, "-m", "demucs", "-n", "htdemucs", "--two-stems", "vocals", "--device", "cuda",
                  "--segment", str(segment), "--overlap", "0.25", "-o", workspace / "stems", input_wav])
@@ -185,22 +220,15 @@ def clean_file(source: Path, destination: Path, strength: float, blend: float, s
                 raise RuntimeError("Demucs returned mismatched stem sample rates.")
             samples = min(len(vocals), len(accompaniment))
             vocals, accompaniment = vocals[:samples], accompaniment[:samples]
-            if tin_can_test:
-                repaired_accompaniment = np.column_stack([
-                    raw_tin_can_reduction(accompaniment[:, channel], rate)
-                    for channel in range(accompaniment.shape[1])
-                ])
-                output = vocals + repaired_accompaniment
-            else:
-                repaired_vocals = np.column_stack([
-                    repair(vocals[:, channel], rate, strength, blend)
-                    for channel in range(vocals.shape[1])
-                ])
-                output = repaired_vocals + accompaniment
+            repaired_vocals = np.column_stack([
+                repair(vocals[:, channel], rate, strength, blend)
+                for channel in range(vocals.shape[1])
+            ])
+            output = repaired_vocals + accompaniment
         peak = float(np.max(np.abs(output)))
         if peak > 0.99:
             output *= 0.99 / peak
-            if dynamic_full_mix_test_enabled:
+            if dynamic_full_mix_test_enabled or harmonic_de_fizzer_enabled:
                 # The report mode is expected to remain below full scale, but
                 # keep its difference signal truthful if safety scaling occurs.
                 removed = original[:len(output)] - output
@@ -212,10 +240,13 @@ def clean_file(source: Path, destination: Path, strength: float, blend: float, s
              "-c:a", "pcm_s24le", staged])
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(staged, destination)
-        if dynamic_full_mix_test_enabled:
+        if dynamic_full_mix_test_enabled or harmonic_de_fizzer_enabled:
             removed_intermediate = workspace / "removed_float.wav"
             wavfile.write(removed_intermediate, rate, removed.astype(np.float32))
-            removed_destination = destination.with_name(destination.stem.replace("_DYNAMIC_1P8_4K_TEST", "_REMOVED_BY_DYNAMIC_TEST") + ".wav")
+            removed_stem = destination.stem.replace("_DYNAMIC_1P8_4K_TEST", "_REMOVED_BY_DYNAMIC_TEST")
+            removed_stem = removed_stem.replace("_HARMONIC_DE_FIZZ_TEST", "_REMOVED_BY_HARMONIC_DE_FIZZ_TEST")
+            removed_stem = removed_stem.replace("_DYNAMIC_AND_HARMONIC_TEST", "_REMOVED_BY_DYNAMIC_AND_HARMONIC_TEST")
+            removed_destination = destination.with_name(removed_stem + ".wav")
             run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", removed_intermediate,
                  "-c:a", "pcm_s24le", removed_destination])
             report_destination = destination.with_suffix(".json")
@@ -242,10 +273,10 @@ def main() -> int:
     parser.add_argument("--strength", type=float, default=3.0, help="1–6; upper-partial suppression")
     parser.add_argument("--blend", type=float, default=0.75, help="0–1; repaired-vocal mix")
     parser.add_argument("--segment", type=int, default=7, help="Demucs CUDA segment, 1–7 seconds")
-    parser.add_argument("--tin-can-test", action="store_true",
-                        help="Apply fixed -3 dB (1.8–2.2 kHz) and -1.5 dB (2.2–4.0 kHz) to accompaniment only")
     parser.add_argument("--dynamic-full-mix-test", action="store_true",
                         help="Whole-mix dynamic test: up to -3 dB at 1.8–4.0 kHz for 250 ms after strong transients")
+    parser.add_argument("--harmonic-de-fizzer", action="store_true",
+                        help="Whole-mix test: attenuate unusually prominent high-frequency spectral ridges up to 6 dB")
     parser.add_argument("--force", action="store_true", help="Replace existing output files")
     arguments = parser.parse_args()
 
@@ -255,8 +286,6 @@ def main() -> int:
         parser.error("--strength must be 1–6 and --blend must be 0–1")
     if not 1 <= arguments.segment <= 7:
         parser.error("--segment must be an integer from 1 to 7")
-    if arguments.tin_can_test and arguments.dynamic_full_mix_test:
-        parser.error("Choose either --tin-can-test or --dynamic-full-mix-test, not both.")
     if not shutil.which("ffmpeg"):
         sys.exit("ERROR: ffmpeg was not found in PATH.")
 
@@ -265,8 +294,8 @@ def main() -> int:
     files = collect_files(input_root, output_root)
     if not files:
         sys.exit("No supported audio files were found in the input folder.")
-    if arguments.dynamic_full_mix_test:
-        print("Whole-mix dynamic test: direct CPU DSP; Demucs/GPU are intentionally not used.", flush=True)
+    if arguments.dynamic_full_mix_test or arguments.harmonic_de_fizzer:
+        print("Whole-mix test: direct CPU DSP; Demucs/GPU are intentionally not used.", flush=True)
     else:
         import torch
         if not torch.cuda.is_available():
@@ -276,18 +305,22 @@ def main() -> int:
     failed = 0
     for index, source in enumerate(files, 1):
         relative = source.relative_to(input_root)
-        mode_key = "dynamic" if arguments.dynamic_full_mix_test else ("tin_can" if arguments.tin_can_test else "clean")
+        mode_key = ("dynamic_harmonic" if arguments.dynamic_full_mix_test and arguments.harmonic_de_fizzer
+                    else "dynamic" if arguments.dynamic_full_mix_test
+                    else "harmonic" if arguments.harmonic_de_fizzer else "clean")
         destination = output_path(output_root, relative, mode_key)
         relative_text = str(relative).replace("\\", "/")
         if destination.exists() and not arguments.force:
             emit("skip", index, len(files), relative_text, "Skipped existing cleaned file")
             continue
-        mode = ("Testing whole-mix dynamic 1.8–4 kHz compression" if arguments.dynamic_full_mix_test
-                else "Testing tin-can reduction" if arguments.tin_can_test else "Cleaning vocal artifacts")
+        mode = ("Testing dynamic 1.8–4 kHz compression plus harmonic de-fizzer" if arguments.dynamic_full_mix_test and arguments.harmonic_de_fizzer
+                else "Testing whole-mix dynamic 1.8–4 kHz compression" if arguments.dynamic_full_mix_test
+                else "Testing whole-mix harmonic de-fizzer" if arguments.harmonic_de_fizzer
+                else "Cleaning vocal artifacts")
         emit("running", index - 1, len(files), relative_text, f"{mode}: {relative.name}")
         try:
             clean_file(source, destination, arguments.strength, arguments.blend, arguments.segment,
-                       arguments.tin_can_test, arguments.dynamic_full_mix_test)
+                       arguments.dynamic_full_mix_test, arguments.harmonic_de_fizzer)
             emit("done", index, len(files), relative_text, f"Saved {destination.name}")
         except Exception as exc:  # Keep the batch running and make the failure visible per track.
             failed += 1
