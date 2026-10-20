@@ -6,7 +6,7 @@ namespace SunoAiRemoveHissing.Models;
 public sealed class AudioItem : INotifyPropertyChanged
 {
     private string _status = "Ready";
-    private bool _isSelected = true;
+    private bool _isSelected;
 
     public required string FullPath { get; init; }
     public required string RelativePath { get; init; }
