@@ -52,6 +52,7 @@ Or run `START_WINDOWS.bat` from the repository root.
 - **Blend** — how much of the repaired vocal is used, from 0 (off) to 1 (full repair).
 - **GPU segment** — Demucs chunk length. Start at 7; reduce to 6 or lower if GPU memory is exhausted.
 - **Replace existing cleaned files** — off by default; preserves previous output until explicitly enabled.
+- **Raw tin-can test** — skips vocal cleanup and applies two fixed reductions only to Demucs' `no_vocals` stem: -3 dB at 1.8–2.2 kHz and -1.5 dB at 2.2–4.0 kHz. It is deliberately static and blunt, intended for A/B evaluation of the drum/rimshot problem.
 
 ## Build a Windows executable
 
