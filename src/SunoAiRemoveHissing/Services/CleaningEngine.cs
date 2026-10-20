@@ -3,7 +3,7 @@ namespace SunoAiRemoveHissing.Services;
 public sealed class CleaningEngine
 {
     public async Task RunAsync(string pythonPath, string scriptPath, string inputRoot, string outputRoot,
-        IEnumerable<string> selectedRelativePaths, int dynamicProfile, int harmonicProfile, bool overwrite,
+        IEnumerable<string> selectedRelativePaths, int dynamicProfile, int harmonicProfile, string outputFormat, bool overwrite,
         IProgress<string>? output, CancellationToken cancellationToken)
     {
         if (!File.Exists(pythonPath)) throw new FileNotFoundException("Choose a valid Python executable.", pythonPath);
@@ -22,7 +22,11 @@ public sealed class CleaningEngine
                 "--output-root", outputRoot,
                 "--selected-list", manifestPath
             };
-            arguments.AddRange(["--dynamic-profile", dynamicProfile.ToString(), "--harmonic-profile", harmonicProfile.ToString()]);
+            arguments.AddRange([
+                "--dynamic-profile", dynamicProfile.ToString(),
+                "--harmonic-profile", harmonicProfile.ToString(),
+                "--output-format", outputFormat
+            ]);
             if (overwrite) arguments.Add("--force");
             await ProcessRunner.RunAsync(pythonPath, arguments, output, cancellationToken);
         }
