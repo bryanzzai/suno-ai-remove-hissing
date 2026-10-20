@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Windows;
 using Microsoft.Win32;
 using SunoAiRemoveHissing.Models;
@@ -74,19 +73,26 @@ public partial class MainWindow : Window
     private async void RunButton_Click(object sender, RoutedEventArgs e)
     {
         if (Tracks.Count == 0) { ShowInfo("Scan a folder before starting cleanup."); return; }
-        if (!ValidateFolders() || !TryReadSettings(out var strength, out var blend, out var segment)) return;
+        if (!ValidateFolders()) return;
+        if (DynamicFullMixTestCheckBox.IsChecked != true && HarmonicDeFizzerCheckBox.IsChecked != true)
+        {
+            ShowInfo("Choose at least one whole-mix effect.");
+            return;
+        }
+        var selected = Tracks.Where(track => track.IsSelected).ToArray();
+        if (selected.Length == 0) { ShowInfo("Tick at least one audio file to process."); return; }
         var script = Path.Combine(AppContext.BaseDirectory, "backend", "SunoClean_AI.py");
         BeginOperation();
         ProgressBar.Minimum = 0;
-        ProgressBar.Maximum = Tracks.Count;
+        ProgressBar.Maximum = selected.Length;
         ProgressBar.Value = 0;
-        foreach (var track in Tracks) track.Status = "Queued";
+        foreach (var track in Tracks) track.Status = track.IsSelected ? "Queued" : "Not selected";
 
         try
         {
             var progress = new Progress<string>(HandleEngineLine);
             await _engine.RunAsync(PythonPathTextBox.Text.Trim(), script, InputPathTextBox.Text.Trim(), OutputPathTextBox.Text.Trim(),
-                strength, blend, segment, DynamicFullMixTestCheckBox.IsChecked == true,
+                selected.Select(track => track.RelativePath), DynamicFullMixTestCheckBox.IsChecked == true,
                 HarmonicDeFizzerCheckBox.IsChecked == true, OverwriteCheckBox.IsChecked == true, progress, _cts!.Token);
             StatusTextBlock.Text = "Cleanup complete.";
         }
@@ -113,18 +119,6 @@ public partial class MainWindow : Window
         if (!Directory.Exists(InputPathTextBox.Text.Trim())) { ShowInfo("Choose a valid input folder."); return false; }
         if (string.IsNullOrWhiteSpace(OutputPathTextBox.Text)) { ShowInfo("Choose an output folder."); return false; }
         return true;
-    }
-
-    private bool TryReadSettings(out int strength, out double blend, out int segment)
-    {
-        strength = 0;
-        blend = 0;
-        segment = 0;
-        var ok = int.TryParse(StrengthTextBox.Text, out strength) && strength is >= 1 and <= 6 &&
-                 double.TryParse(BlendTextBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out blend) && blend is >= 0 and <= 1 &&
-                 int.TryParse(SegmentTextBox.Text, out segment) && segment is >= 1 and <= 7;
-        if (!ok) ShowInfo("Strength must be 1–6, blend 0–1, and GPU segment 1–7 seconds.");
-        return ok;
     }
 
     private void BeginOperation()
