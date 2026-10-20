@@ -34,20 +34,31 @@
 
         <GroupBox Grid.Row="2" Header="Whole-mix effects" Padding="12" Margin="0,0,0,14">
             <Grid>
-                <StackPanel>
-                    <CheckBox x:Name="HarmonicDeFizzerCheckBox"
-                          Content="Harmonic de-fizzer: reduce unusually prominent narrow high-frequency ridges in the whole mix by up to -6 dB. Writes result, removed-signal WAV, and JSON report." />
-                    <CheckBox x:Name="DynamicFullMixTestCheckBox" Margin="0,8,0,0"
-                          Content="Dynamic 1.8–4 kHz: detect strong transients and reduce that band by up to -3 dB for 250 ms. Writes result, removed-signal WAV, and JSON report." />
-                    <CheckBox x:Name="OverwriteCheckBox" Margin="0,8,0,0" Content="Replace existing output files" />
-                </StackPanel>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center" Text="Dynamic 1.8–4 kHz" />
+                <Slider x:Name="DynamicProfileSlider" Grid.Column="1" Minimum="0" Maximum="4" Value="2" TickFrequency="1"
+                        IsSnapToTickEnabled="True" TickPlacement="BottomRight" ValueChanged="DynamicProfileSlider_ValueChanged" />
+                <TextBlock x:Name="DynamicProfileTextBlock" Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" Text="Normal" />
+                <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Harmonic de-fizzer" />
+                <Slider x:Name="HarmonicProfileSlider" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="4" Value="2" TickFrequency="1"
+                        IsSnapToTickEnabled="True" TickPlacement="BottomRight" ValueChanged="HarmonicProfileSlider_ValueChanged" />
+                <TextBlock x:Name="HarmonicProfileTextBlock" Grid.Row="1" Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" Text="Normal" />
+                <CheckBox x:Name="OverwriteCheckBox" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0" Content="Replace existing output files" />
             </Grid>
         </GroupBox>
 
         <DataGrid x:Name="AudioGrid" Grid.Row="3" ItemsSource="{Binding Tracks}" AutoGenerateColumns="False" IsReadOnly="False"
                   CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal">
             <DataGrid.Columns>
-                <DataGridCheckBoxColumn Header="Use" Binding="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="55" />
+                <DataGridTemplateColumn Header="Use" Width="55">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox HorizontalAlignment="Center" VerticalAlignment="Center" Focusable="False"
+                                      IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Audio file" Binding="{Binding FileName}" Width="3*" IsReadOnly="True" />
                 <DataGridTextColumn Header="Folder" Binding="{Binding Folder}" Width="3*" IsReadOnly="True" />
                 <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="2*" IsReadOnly="True" />
