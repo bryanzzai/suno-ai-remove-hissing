@@ -21,22 +21,18 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Restore
-        run: dotnet restore src/SunoAiRemoveHissing/SunoAiRemoveHissing.csproj
+      - name: Install packaging Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Compile
-        run: dotnet build src/SunoAiRemoveHissing/SunoAiRemoveHissing.csproj --configuration Release --no-restore
+      - name: Build portable Windows folder
+        shell: pwsh
+        run: .\BUILD_PORTABLE.ps1 -Output "$env:GITHUB_WORKSPACE\dist\SunoAiRemoveHissing-Portable"
 
-      - name: Publish self-contained Windows build
-        run: >-
-          dotnet publish src/SunoAiRemoveHissing/SunoAiRemoveHissing.csproj
-          --configuration Release --runtime win-x64 --self-contained true
-          --output dist/SunoAiRemoveHissing-win-x64
-          /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
-
-      - name: Upload Windows build
+      - name: Upload portable Windows folder
         uses: actions/upload-artifact@v4
         with:
-          name: SunoAiRemoveHissing-win-x64
-          path: dist/SunoAiRemoveHissing-win-x64
+          name: SunoAiRemoveHissing-Portable-win-x64
+          path: dist/SunoAiRemoveHissing-Portable
           if-no-files-found: error
