@@ -16,6 +16,19 @@ from scipy.ndimage import gaussian_filter1d, median_filter
 from scipy.signal import istft, stft
 
 EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".aiff", ".aif"}
+PROFILE_NAMES = ["Off", "Light", "Normal", "Strong", "Brutal"]
+DYNAMIC_PROFILES = {
+    1: {"threshold_db": 4.5, "maximum_reduction_db": 2.5, "release_seconds": 0.22},
+    2: {"threshold_db": 4.0, "maximum_reduction_db": 3.0, "release_seconds": 0.25},
+    3: {"threshold_db": 3.0, "maximum_reduction_db": 4.5, "release_seconds": 0.30},
+    4: {"threshold_db": 2.0, "maximum_reduction_db": 6.0, "release_seconds": 0.35},
+}
+HARMONIC_PROFILES = {
+    1: {"maximum_reduction_db": 5.0, "prominence_scale": 1.7},
+    2: {"maximum_reduction_db": 6.0, "prominence_scale": 1.5},
+    3: {"maximum_reduction_db": 8.0, "prominence_scale": 1.3},
+    4: {"maximum_reduction_db": 10.0, "prominence_scale": 1.1},
+}
 
 
 def emit(phase: str, completed: int, total: int, relative: str, message: str) -> None:
@@ -41,7 +54,7 @@ def read_audio(path: Path) -> tuple[int, np.ndarray]:
     return rate, data
 
 
-def harmonic_de_fizzer(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dict[str, object]]:
+def harmonic_de_fizzer(audio: np.ndarray, rate: int, profile: int) -> tuple[np.ndarray, dict[str, object]]:
     """Whole-mix high-partial test, deliberately stronger than the final target.
 
     This does not claim to identify a singer's true fundamental.  It finds
@@ -57,13 +70,15 @@ def harmonic_de_fizzer(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dict[s
     magnitude = np.abs(detector_spectrum)
     local_envelope = median_filter(magnitude, size=(17, 3), mode="nearest")
     prominence = np.maximum(magnitude / (local_envelope + 1e-9) - 1.0, 0.0)
-    ridge_mask = np.clip(prominence / 1.5, 0.0, 1.0)
+    settings = HARMONIC_PROFILES[profile]
+    maximum_reduction_db = settings["maximum_reduction_db"]
+    ridge_mask = np.clip(prominence / settings["prominence_scale"], 0.0, 1.0)
     ramp_up = np.clip((freqs - 3500.0) / 1000.0, 0.0, 1.0)
     ramp_down = np.clip((11000.0 - freqs) / 1500.0, 0.0, 1.0)
     target_mask = ridge_mask * (ramp_up * ramp_down)[:, None]
     target_mask = gaussian_filter1d(target_mask, 0.8, axis=0)
     target_mask = gaussian_filter1d(target_mask, 0.6, axis=1)
-    gain = 10.0 ** (-(6.0 * target_mask) / 20.0)
+    gain = 10.0 ** (-(maximum_reduction_db * target_mask) / 20.0)
 
     channels = []
     for channel in range(audio.shape[1]):
@@ -76,16 +91,18 @@ def harmonic_de_fizzer(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dict[s
     target_band = (freqs >= 3500.0) & (freqs <= 11000.0)
     report: dict[str, object] = {
         "mode": "whole_mix_harmonic_de_fizzer_test",
+        "profile": PROFILE_NAMES[profile],
         "band_hz": [3500, 11000],
-        "maximum_reduction_db": 6.0,
+        "maximum_reduction_db": maximum_reduction_db,
+        "prominence_scale": settings["prominence_scale"],
         "affected_spectral_cells_percent": round(float(np.mean(target_mask[target_band] >= 0.05) * 100.0), 3),
-        "mean_reduction_db_in_affected_cells": round(float(np.mean(6.0 * target_mask[target_mask >= 0.05])), 3)
+        "mean_reduction_db_in_affected_cells": round(float(np.mean(maximum_reduction_db * target_mask[target_mask >= 0.05])), 3)
         if np.any(target_mask >= 0.05) else 0.0,
     }
     return output, report
 
 
-def dynamic_full_mix_test(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dict[str, object]]:
+def dynamic_full_mix_test(audio: np.ndarray, rate: int, profile: int) -> tuple[np.ndarray, dict[str, object]]:
     """An intentionally audible whole-mix dynamic EQ proof.
 
     The detector uses the mono sum to preserve stereo placement.  When energy
@@ -95,6 +112,10 @@ def dynamic_full_mix_test(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dic
     """
     nfft = 2048 if rate <= 48000 else 4096
     hop = nfft // 4
+    settings = DYNAMIC_PROFILES[profile]
+    threshold_db = settings["threshold_db"]
+    maximum_reduction_db = settings["maximum_reduction_db"]
+    release_seconds = settings["release_seconds"]
     mono = audio.mean(axis=1)
     freqs, _, detector_spectrum = stft(mono, fs=rate, nperseg=nfft, noverlap=nfft - hop,
                                        boundary="zeros")
@@ -105,16 +126,15 @@ def dynamic_full_mix_test(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dic
     if local_frames % 2 == 0:
         local_frames += 1
     local_floor_db = median_filter(band_db, size=local_frames, mode="nearest")
-    excess_db = np.maximum(0.0, band_db - (local_floor_db + 4.0))
+    excess_db = np.maximum(0.0, band_db - (local_floor_db + threshold_db))
 
-    # 4 dB above the local floor begins reduction; 10 dB over it reaches -3 dB.
-    requested_reduction_db = np.minimum(3.0, excess_db * 0.5)
+    requested_reduction_db = np.minimum(maximum_reduction_db, excess_db * 0.5)
     held_reduction_db = requested_reduction_db.copy()
-    hold_frames = max(1, int(np.ceil(0.250 * rate / hop)))
+    release_frames = max(1, int(np.ceil(release_seconds * rate / hop)))
     for frame in range(1, len(held_reduction_db)):
         held_reduction_db[frame] = max(
             requested_reduction_db[frame],
-            held_reduction_db[frame - 1] - 3.0 / hold_frames,
+            held_reduction_db[frame - 1] - maximum_reduction_db / release_frames,
         )
 
     gains = 10.0 ** (-held_reduction_db / 20.0)
@@ -143,10 +163,11 @@ def dynamic_full_mix_test(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dic
             start = None
     report: dict[str, object] = {
         "mode": "whole_mix_dynamic_band_test",
+        "profile": PROFILE_NAMES[profile],
         "band_hz": [1800, 4000],
-        "trigger_above_local_median_db": 4.0,
-        "maximum_reduction_db": 3.0,
-        "hold_seconds": 0.250,
+        "trigger_above_local_median_db": threshold_db,
+        "maximum_reduction_db": maximum_reduction_db,
+        "release_seconds": release_seconds,
         "events": events,
     }
     return output, report
@@ -154,15 +175,14 @@ def dynamic_full_mix_test(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dic
 
 def output_path(output_root: Path, relative: Path, mode: str) -> Path:
     suffixes = {
-        "dynamic": "DYNAMIC_1P8_4K.wav",
-        "harmonic": "HARMONIC_DE_FIZZ.wav",
-        "dynamic_harmonic": "DYNAMIC_AND_HARMONIC.wav",
+        "dynamic": "_D.wav",
+        "harmonic": "_H.wav",
+        "dynamic_harmonic": "_D&H.wav",
     }
-    return (output_root / relative.parent / relative.stem / suffixes[mode]).resolve()
+    return (output_root / relative.parent / relative.stem / f"{relative.stem}{suffixes[mode]}").resolve()
 
 
-def clean_file(source: Path, destination: Path, dynamic_full_mix_test_enabled: bool,
-               harmonic_de_fizzer_enabled: bool) -> None:
+def clean_file(source: Path, destination: Path, dynamic_profile: int, harmonic_profile: int) -> None:
     with tempfile.TemporaryDirectory(prefix="sunoclean_") as raw_workspace:
         workspace = Path(raw_workspace)
         input_wav = workspace / "input.wav"
@@ -171,11 +191,11 @@ def clean_file(source: Path, destination: Path, dynamic_full_mix_test_enabled: b
         rate, original = read_audio(input_wav)
         output = original
         reports = []
-        if dynamic_full_mix_test_enabled:
-            output, dynamic_report = dynamic_full_mix_test(output, rate)
+        if dynamic_profile:
+            output, dynamic_report = dynamic_full_mix_test(output, rate, dynamic_profile)
             reports.append(dynamic_report)
-        if harmonic_de_fizzer_enabled:
-            output, harmonic_report = harmonic_de_fizzer(output, rate)
+        if harmonic_profile:
+            output, harmonic_report = harmonic_de_fizzer(output, rate, harmonic_profile)
             reports.append(harmonic_report)
         removed = original[:len(output)] - output
         report = {"effects": reports}
@@ -193,7 +213,13 @@ def clean_file(source: Path, destination: Path, dynamic_full_mix_test_enabled: b
         shutil.copy2(staged, destination)
         removed_intermediate = workspace / "removed_float.wav"
         wavfile.write(removed_intermediate, rate, removed.astype(np.float32))
-        removed_destination = destination.with_name(f"REMOVED_BY_{destination.stem}.wav")
+        for suffix in ("_D&H", "_D", "_H"):
+            if destination.stem.endswith(suffix):
+                removed_stem = destination.stem[:-len(suffix)] + "_REMOVED" + suffix
+                break
+        else:
+            raise RuntimeError("Could not derive the removed-signal file name.")
+        removed_destination = destination.with_name(f"{removed_stem}.wav")
         run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", removed_intermediate,
              "-c:a", "pcm_s24le", removed_destination])
         report_destination = destination.with_suffix(".json")
@@ -228,10 +254,10 @@ def main() -> int:
     parser.add_argument("--output-root", required=True, type=Path, help="Folder for cleaned WAV output")
     parser.add_argument("--selected-list", required=True, type=Path,
                         help="UTF-8 text file containing selected paths relative to input root")
-    parser.add_argument("--dynamic-full-mix-test", action="store_true",
-                        help="Whole-mix dynamic test: up to -3 dB at 1.8–4.0 kHz for 250 ms after strong transients")
-    parser.add_argument("--harmonic-de-fizzer", action="store_true",
-                        help="Whole-mix test: attenuate unusually prominent high-frequency spectral ridges up to 6 dB")
+    parser.add_argument("--dynamic-profile", required=True, type=int, choices=range(0, 5),
+                        help="0=Off, 1=Light, 2=Normal, 3=Strong, 4=Brutal")
+    parser.add_argument("--harmonic-profile", required=True, type=int, choices=range(0, 5),
+                        help="0=Off, 1=Light, 2=Normal, 3=Strong, 4=Brutal")
     parser.add_argument("--force", action="store_true", help="Replace existing output files")
     arguments = parser.parse_args()
 
@@ -239,7 +265,7 @@ def main() -> int:
         parser.error("--input-root must be an existing directory")
     if not arguments.selected_list.is_file():
         parser.error("--selected-list must be an existing text file")
-    if not arguments.dynamic_full_mix_test and not arguments.harmonic_de_fizzer:
+    if not arguments.dynamic_profile and not arguments.harmonic_profile:
         parser.error("Choose at least one whole-mix effect.")
     if not shutil.which("ffmpeg"):
         sys.exit("ERROR: ffmpeg was not found in PATH.")
@@ -249,25 +275,25 @@ def main() -> int:
     files = collect_files(input_root, output_root, arguments.selected_list)
     if not files:
         sys.exit("No supported audio files were found in the input folder.")
-    print("Whole-mix processing: direct CPU DSP; Demucs/GPU are not used.", flush=True)
+    print(f"Whole-mix processing: dynamic={PROFILE_NAMES[arguments.dynamic_profile]}, "
+          f"harmonic={PROFILE_NAMES[arguments.harmonic_profile]}; Demucs/GPU are not used.", flush=True)
 
     failed = 0
     for index, source in enumerate(files, 1):
         relative = source.relative_to(input_root)
-        mode_key = ("dynamic_harmonic" if arguments.dynamic_full_mix_test and arguments.harmonic_de_fizzer
-                    else "dynamic" if arguments.dynamic_full_mix_test
+        mode_key = ("dynamic_harmonic" if arguments.dynamic_profile and arguments.harmonic_profile
+                    else "dynamic" if arguments.dynamic_profile
                     else "harmonic")
         destination = output_path(output_root, relative, mode_key)
         relative_text = str(relative).replace("\\", "/")
         if destination.exists() and not arguments.force:
             emit("skip", index, len(files), relative_text, "Skipped existing cleaned file")
             continue
-        mode = ("Testing dynamic 1.8–4 kHz compression plus harmonic de-fizzer" if arguments.dynamic_full_mix_test and arguments.harmonic_de_fizzer
-                else "Testing whole-mix dynamic 1.8–4 kHz compression" if arguments.dynamic_full_mix_test
-                else "Testing whole-mix harmonic de-fizzer")
+        mode = ("Applying dynamic and harmonic profiles" if arguments.dynamic_profile and arguments.harmonic_profile
+                else "Applying dynamic profile" if arguments.dynamic_profile else "Applying harmonic profile")
         emit("running", index - 1, len(files), relative_text, f"{mode}: {relative.name}")
         try:
-            clean_file(source, destination, arguments.dynamic_full_mix_test, arguments.harmonic_de_fizzer)
+            clean_file(source, destination, arguments.dynamic_profile, arguments.harmonic_profile)
             emit("done", index, len(files), relative_text, f"Saved {destination.name}")
         except Exception as exc:  # Keep the batch running and make the failure visible per track.
             failed += 1
