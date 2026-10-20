@@ -82,6 +82,7 @@ public partial class MainWindow : Window
         if (!ValidateFolders()) return;
         var dynamicProfile = (int)DynamicProfileSlider.Value;
         var harmonicProfile = (int)HarmonicProfileSlider.Value;
+        var outputFormat = M4aOutputRadioButton.IsChecked == true ? "m4a" : "wav";
         if (dynamicProfile == 0 && harmonicProfile == 0)
         {
             ShowInfo("Choose at least one whole-mix effect.");
@@ -101,7 +102,7 @@ public partial class MainWindow : Window
             var progress = new Progress<string>(HandleEngineLine);
             await _engine.RunAsync(PythonPathTextBox.Text.Trim(), script, InputPathTextBox.Text.Trim(), OutputPathTextBox.Text.Trim(),
                 selected.Select(track => track.RelativePath), dynamicProfile, harmonicProfile,
-                OverwriteCheckBox.IsChecked == true, progress, _cts!.Token);
+                outputFormat, OverwriteCheckBox.IsChecked == true, progress, _cts!.Token);
             StatusTextBlock.Text = "Cleanup complete.";
             UpdateSelectionCount(completed: true);
         }
