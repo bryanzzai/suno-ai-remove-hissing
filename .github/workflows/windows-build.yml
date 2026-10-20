@@ -1,0 +1,42 @@
+name: Build Windows application
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore src/SunoAiRemoveHissing/SunoAiRemoveHissing.csproj
+
+      - name: Compile
+        run: dotnet build src/SunoAiRemoveHissing/SunoAiRemoveHissing.csproj --configuration Release --no-restore
+
+      - name: Publish self-contained Windows build
+        run: >-
+          dotnet publish src/SunoAiRemoveHissing/SunoAiRemoveHissing.csproj
+          --configuration Release --runtime win-x64 --self-contained true
+          --output dist/SunoAiRemoveHissing-win-x64
+          /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SunoAiRemoveHissing-win-x64
+          path: dist/SunoAiRemoveHissing-win-x64
+          if-no-files-found: error
