@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""SunoClean AI backend: Demucs vocal separation plus conservative spectral repair.
-
-The filter only changes the estimated vocal stem and writes a separate 24-bit
-WAV below the chosen output root. It is intentionally conservative: it reduces
-prominent upper-frequency ridges often heard as metallic fizz in generated
-vocals; it is not a general-purpose noise remover.
-"""
+"""SunoClean AI backend: direct whole-mix artifact reduction."""
 from __future__ import annotations
 
 import argparse
@@ -45,27 +39,6 @@ def read_audio(path: Path) -> tuple[int, np.ndarray]:
     if data.ndim == 1:
         data = data[:, None]
     return rate, data
-
-
-def repair(channel: np.ndarray, rate: int, strength: float, blend: float) -> np.ndarray:
-    """Attenuate protruding upper partials in a vocal stem without hard gating."""
-    nfft = 4096 if rate <= 48000 else 8192
-    hop = nfft // 4
-    freqs, _, spectrum = stft(channel, fs=rate, nperseg=nfft, noverlap=nfft - hop, boundary="zeros")
-    magnitude = np.abs(spectrum)
-    envelope = median_filter(magnitude, size=(15, 1), mode="nearest")
-    prominence = np.maximum(magnitude / (envelope + 1e-7) - 1.0, 0.0)
-    peak_mask = np.clip(prominence / 2.0, 0.0, 1.0)
-
-    ramp_up = np.clip((freqs - 1300.0) / 1200.0, 0.0, 1.0)
-    ramp_down = np.clip((9500.0 - freqs) / 2500.0, 0.0, 1.0)
-    region = (ramp_up * ramp_down)[:, None]
-    maximum_reduction_db = 2.0 + strength * 1.5
-    maximum_attenuation = 1.0 - 10.0 ** (-maximum_reduction_db / 20.0)
-    gain = 1.0 - blend * maximum_attenuation * region * peak_mask
-    gain = gaussian_filter1d(gain, 0.7, axis=0)
-    _, output = istft(spectrum * gain, fs=rate, nperseg=nfft, noverlap=nfft - hop, input_onesided=True, boundary=True)
-    return output[: len(channel)].astype(np.float32)
 
 
 def harmonic_de_fizzer(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dict[str, object]]:
@@ -181,57 +154,35 @@ def dynamic_full_mix_test(audio: np.ndarray, rate: int) -> tuple[np.ndarray, dic
 
 def output_path(output_root: Path, relative: Path, mode: str) -> Path:
     suffixes = {
-        "clean": "_CLEANED.wav",
-        "dynamic": "_DYNAMIC_1P8_4K_TEST.wav",
-        "harmonic": "_HARMONIC_DE_FIZZ_TEST.wav",
-        "dynamic_harmonic": "_DYNAMIC_AND_HARMONIC_TEST.wav",
+        "dynamic": "DYNAMIC_1P8_4K.wav",
+        "harmonic": "HARMONIC_DE_FIZZ.wav",
+        "dynamic_harmonic": "DYNAMIC_AND_HARMONIC.wav",
     }
-    suffix = suffixes[mode]
-    return (output_root / relative.parent / f"{relative.stem}{suffix}").resolve()
+    return (output_root / relative.parent / relative.stem / suffixes[mode]).resolve()
 
 
-def clean_file(source: Path, destination: Path, strength: float, blend: float, segment: int,
-               dynamic_full_mix_test_enabled: bool, harmonic_de_fizzer_enabled: bool) -> None:
+def clean_file(source: Path, destination: Path, dynamic_full_mix_test_enabled: bool,
+               harmonic_de_fizzer_enabled: bool) -> None:
     with tempfile.TemporaryDirectory(prefix="sunoclean_") as raw_workspace:
         workspace = Path(raw_workspace)
         input_wav = workspace / "input.wav"
         run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", source,
              "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", input_wav])
-        dynamic_report = None
-        if dynamic_full_mix_test_enabled or harmonic_de_fizzer_enabled:
-            rate, original = read_audio(input_wav)
-            output = original
-            reports = []
-            if dynamic_full_mix_test_enabled:
-                output, dynamic_report = dynamic_full_mix_test(output, rate)
-                reports.append(dynamic_report)
-            if harmonic_de_fizzer_enabled:
-                output, harmonic_report = harmonic_de_fizzer(output, rate)
-                reports.append(harmonic_report)
-            removed = original[:len(output)] - output
-            dynamic_report = {"effects": reports}
-        else:
-            run([sys.executable, "-m", "demucs", "-n", "htdemucs", "--two-stems", "vocals", "--device", "cuda",
-                 "--segment", str(segment), "--overlap", "0.25", "-o", workspace / "stems", input_wav])
-            stem_root = workspace / "stems" / "htdemucs" / "input"
-            rate, vocals = read_audio(stem_root / "vocals.wav")
-            accompaniment_rate, accompaniment = read_audio(stem_root / "no_vocals.wav")
-            if rate != accompaniment_rate:
-                raise RuntimeError("Demucs returned mismatched stem sample rates.")
-            samples = min(len(vocals), len(accompaniment))
-            vocals, accompaniment = vocals[:samples], accompaniment[:samples]
-            repaired_vocals = np.column_stack([
-                repair(vocals[:, channel], rate, strength, blend)
-                for channel in range(vocals.shape[1])
-            ])
-            output = repaired_vocals + accompaniment
+        rate, original = read_audio(input_wav)
+        output = original
+        reports = []
+        if dynamic_full_mix_test_enabled:
+            output, dynamic_report = dynamic_full_mix_test(output, rate)
+            reports.append(dynamic_report)
+        if harmonic_de_fizzer_enabled:
+            output, harmonic_report = harmonic_de_fizzer(output, rate)
+            reports.append(harmonic_report)
+        removed = original[:len(output)] - output
+        report = {"effects": reports}
         peak = float(np.max(np.abs(output)))
         if peak > 0.99:
             output *= 0.99 / peak
-            if dynamic_full_mix_test_enabled or harmonic_de_fizzer_enabled:
-                # The report mode is expected to remain below full scale, but
-                # keep its difference signal truthful if safety scaling occurs.
-                removed = original[:len(output)] - output
+            removed = original[:len(output)] - output
 
         intermediate = workspace / "repaired_float.wav"
         wavfile.write(intermediate, rate, output.astype(np.float32))
@@ -240,21 +191,24 @@ def clean_file(source: Path, destination: Path, strength: float, blend: float, s
              "-c:a", "pcm_s24le", staged])
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(staged, destination)
-        if dynamic_full_mix_test_enabled or harmonic_de_fizzer_enabled:
-            removed_intermediate = workspace / "removed_float.wav"
-            wavfile.write(removed_intermediate, rate, removed.astype(np.float32))
-            removed_stem = destination.stem.replace("_DYNAMIC_1P8_4K_TEST", "_REMOVED_BY_DYNAMIC_TEST")
-            removed_stem = removed_stem.replace("_HARMONIC_DE_FIZZ_TEST", "_REMOVED_BY_HARMONIC_DE_FIZZ_TEST")
-            removed_stem = removed_stem.replace("_DYNAMIC_AND_HARMONIC_TEST", "_REMOVED_BY_DYNAMIC_AND_HARMONIC_TEST")
-            removed_destination = destination.with_name(removed_stem + ".wav")
-            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", removed_intermediate,
-                 "-c:a", "pcm_s24le", removed_destination])
-            report_destination = destination.with_suffix(".json")
-            report_destination.write_text(json.dumps(dynamic_report, indent=2), encoding="utf-8")
+        removed_intermediate = workspace / "removed_float.wav"
+        wavfile.write(removed_intermediate, rate, removed.astype(np.float32))
+        removed_destination = destination.with_name(f"REMOVED_BY_{destination.stem}.wav")
+        run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", removed_intermediate,
+             "-c:a", "pcm_s24le", removed_destination])
+        report_destination = destination.with_suffix(".json")
+        report_destination.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
-def collect_files(input_root: Path, output_root: Path) -> list[Path]:
+def collect_files(input_root: Path, output_root: Path, selected_list: Path) -> list[Path]:
     output_root = output_root.resolve()
+    selected = {
+        line.strip().replace("\\", "/")
+        for line in selected_list.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    }
+    if not selected:
+        raise ValueError("The selected-file list is empty.")
     files = []
     for candidate in input_root.rglob("*"):
         if not candidate.is_file() or candidate.suffix.lower() not in EXTENSIONS:
@@ -262,17 +216,18 @@ def collect_files(input_root: Path, output_root: Path) -> list[Path]:
         try:
             candidate.resolve().relative_to(output_root)
         except ValueError:
-            files.append(candidate)
+            relative = candidate.resolve().relative_to(input_root.resolve()).as_posix()
+            if relative in selected:
+                files.append(candidate)
     return sorted(files, key=lambda path: str(path).lower())
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Demucs vocal cleanup for Suno tracks. Originals remain untouched.")
+    parser = argparse.ArgumentParser(description="Whole-mix artifact reduction for selected Suno tracks. Originals remain untouched.")
     parser.add_argument("--input-root", required=True, type=Path, help="Folder containing source audio")
     parser.add_argument("--output-root", required=True, type=Path, help="Folder for cleaned WAV output")
-    parser.add_argument("--strength", type=float, default=3.0, help="1–6; upper-partial suppression")
-    parser.add_argument("--blend", type=float, default=0.75, help="0–1; repaired-vocal mix")
-    parser.add_argument("--segment", type=int, default=7, help="Demucs CUDA segment, 1–7 seconds")
+    parser.add_argument("--selected-list", required=True, type=Path,
+                        help="UTF-8 text file containing selected paths relative to input root")
     parser.add_argument("--dynamic-full-mix-test", action="store_true",
                         help="Whole-mix dynamic test: up to -3 dB at 1.8–4.0 kHz for 250 ms after strong transients")
     parser.add_argument("--harmonic-de-fizzer", action="store_true",
@@ -282,32 +237,26 @@ def main() -> int:
 
     if not arguments.input_root.is_dir():
         parser.error("--input-root must be an existing directory")
-    if not 1 <= arguments.strength <= 6 or not 0 <= arguments.blend <= 1:
-        parser.error("--strength must be 1–6 and --blend must be 0–1")
-    if not 1 <= arguments.segment <= 7:
-        parser.error("--segment must be an integer from 1 to 7")
+    if not arguments.selected_list.is_file():
+        parser.error("--selected-list must be an existing text file")
+    if not arguments.dynamic_full_mix_test and not arguments.harmonic_de_fizzer:
+        parser.error("Choose at least one whole-mix effect.")
     if not shutil.which("ffmpeg"):
         sys.exit("ERROR: ffmpeg was not found in PATH.")
 
     input_root = arguments.input_root.resolve()
     output_root = arguments.output_root.resolve()
-    files = collect_files(input_root, output_root)
+    files = collect_files(input_root, output_root, arguments.selected_list)
     if not files:
         sys.exit("No supported audio files were found in the input folder.")
-    if arguments.dynamic_full_mix_test or arguments.harmonic_de_fizzer:
-        print("Whole-mix test: direct CPU DSP; Demucs/GPU are intentionally not used.", flush=True)
-    else:
-        import torch
-        if not torch.cuda.is_available():
-            sys.exit("ERROR: CUDA is not available. Install a CUDA-enabled PyTorch build; this backend has no CPU fallback.")
-        print(f"Using GPU: {torch.cuda.get_device_name(0)} | Demucs segment: {arguments.segment}s", flush=True)
+    print("Whole-mix processing: direct CPU DSP; Demucs/GPU are not used.", flush=True)
 
     failed = 0
     for index, source in enumerate(files, 1):
         relative = source.relative_to(input_root)
         mode_key = ("dynamic_harmonic" if arguments.dynamic_full_mix_test and arguments.harmonic_de_fizzer
                     else "dynamic" if arguments.dynamic_full_mix_test
-                    else "harmonic" if arguments.harmonic_de_fizzer else "clean")
+                    else "harmonic")
         destination = output_path(output_root, relative, mode_key)
         relative_text = str(relative).replace("\\", "/")
         if destination.exists() and not arguments.force:
@@ -315,12 +264,10 @@ def main() -> int:
             continue
         mode = ("Testing dynamic 1.8–4 kHz compression plus harmonic de-fizzer" if arguments.dynamic_full_mix_test and arguments.harmonic_de_fizzer
                 else "Testing whole-mix dynamic 1.8–4 kHz compression" if arguments.dynamic_full_mix_test
-                else "Testing whole-mix harmonic de-fizzer" if arguments.harmonic_de_fizzer
-                else "Cleaning vocal artifacts")
+                else "Testing whole-mix harmonic de-fizzer")
         emit("running", index - 1, len(files), relative_text, f"{mode}: {relative.name}")
         try:
-            clean_file(source, destination, arguments.strength, arguments.blend, arguments.segment,
-                       arguments.dynamic_full_mix_test, arguments.harmonic_de_fizzer)
+            clean_file(source, destination, arguments.dynamic_full_mix_test, arguments.harmonic_de_fizzer)
             emit("done", index, len(files), relative_text, f"Saved {destination.name}")
         except Exception as exc:  # Keep the batch running and make the failure visible per track.
             failed += 1
