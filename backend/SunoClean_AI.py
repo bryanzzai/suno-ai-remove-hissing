@@ -67,11 +67,31 @@ def repair(channel: np.ndarray, rate: int, strength: float, blend: float) -> np.
     return output[: len(channel)].astype(np.float32)
 
 
-def output_path(output_root: Path, relative: Path) -> Path:
-    return (output_root / relative.parent / f"{relative.stem}_CLEANED.wav").resolve()
+def raw_tin_can_reduction(channel: np.ndarray, rate: int) -> np.ndarray:
+    """Fixed, intentionally blunt accompaniment EQ for A/B evaluation.
+
+    This is not a transient detector. It reduces the two requested bands for
+    the entire accompaniment stem: 1.8–2.2 kHz by 3 dB and 2.2–4.0 kHz by
+    1.5 dB. The vocal stem stays untouched.
+    """
+    nfft = 4096 if rate <= 48000 else 8192
+    hop = nfft // 4
+    freqs, _, spectrum = stft(channel, fs=rate, nperseg=nfft, noverlap=nfft - hop, boundary="zeros")
+    gain = np.ones_like(freqs, dtype=np.float32)
+    gain[(freqs >= 1800.0) & (freqs < 2200.0)] = 10.0 ** (-3.0 / 20.0)
+    gain[(freqs >= 2200.0) & (freqs <= 4000.0)] = 10.0 ** (-1.5 / 20.0)
+    _, output = istft(spectrum * gain[:, None], fs=rate, nperseg=nfft, noverlap=nfft - hop,
+                      input_onesided=True, boundary=True)
+    return output[: len(channel)].astype(np.float32)
 
 
-def clean_file(source: Path, destination: Path, strength: float, blend: float, segment: int) -> None:
+def output_path(output_root: Path, relative: Path, tin_can_test: bool) -> Path:
+    suffix = "_TIN_CAN_TEST.wav" if tin_can_test else "_CLEANED.wav"
+    return (output_root / relative.parent / f"{relative.stem}{suffix}").resolve()
+
+
+def clean_file(source: Path, destination: Path, strength: float, blend: float, segment: int,
+               tin_can_test: bool) -> None:
     with tempfile.TemporaryDirectory(prefix="sunoclean_") as raw_workspace:
         workspace = Path(raw_workspace)
         input_wav = workspace / "input.wav"
@@ -87,9 +107,18 @@ def clean_file(source: Path, destination: Path, strength: float, blend: float, s
             raise RuntimeError("Demucs returned mismatched stem sample rates.")
         samples = min(len(vocals), len(accompaniment))
         vocals, accompaniment = vocals[:samples], accompaniment[:samples]
-        repaired = np.column_stack([repair(vocals[:, channel], rate, strength, blend)
-                                    for channel in range(vocals.shape[1])])
-        output = repaired + accompaniment
+        if tin_can_test:
+            repaired_accompaniment = np.column_stack([
+                raw_tin_can_reduction(accompaniment[:, channel], rate)
+                for channel in range(accompaniment.shape[1])
+            ])
+            output = vocals + repaired_accompaniment
+        else:
+            repaired_vocals = np.column_stack([
+                repair(vocals[:, channel], rate, strength, blend)
+                for channel in range(vocals.shape[1])
+            ])
+            output = repaired_vocals + accompaniment
         peak = float(np.max(np.abs(output)))
         if peak > 0.99:
             output *= 0.99 / peak
@@ -123,6 +152,8 @@ def main() -> int:
     parser.add_argument("--strength", type=float, default=3.0, help="1–6; upper-partial suppression")
     parser.add_argument("--blend", type=float, default=0.75, help="0–1; repaired-vocal mix")
     parser.add_argument("--segment", type=int, default=7, help="Demucs CUDA segment, 1–7 seconds")
+    parser.add_argument("--tin-can-test", action="store_true",
+                        help="Apply fixed -3 dB (1.8–2.2 kHz) and -1.5 dB (2.2–4.0 kHz) to accompaniment only")
     parser.add_argument("--force", action="store_true", help="Replace existing output files")
     arguments = parser.parse_args()
 
@@ -149,14 +180,16 @@ def main() -> int:
     failed = 0
     for index, source in enumerate(files, 1):
         relative = source.relative_to(input_root)
-        destination = output_path(output_root, relative)
+        destination = output_path(output_root, relative, arguments.tin_can_test)
         relative_text = str(relative).replace("\\", "/")
         if destination.exists() and not arguments.force:
             emit("skip", index, len(files), relative_text, "Skipped existing cleaned file")
             continue
-        emit("running", index - 1, len(files), relative_text, f"Cleaning {relative.name}")
+        mode = "Testing tin-can reduction" if arguments.tin_can_test else "Cleaning vocal artifacts"
+        emit("running", index - 1, len(files), relative_text, f"{mode}: {relative.name}")
         try:
-            clean_file(source, destination, arguments.strength, arguments.blend, arguments.segment)
+            clean_file(source, destination, arguments.strength, arguments.blend, arguments.segment,
+                       arguments.tin_can_test)
             emit("done", index, len(files), relative_text, f"Saved {destination.name}")
         except Exception as exc:  # Keep the batch running and make the failure visible per track.
             failed += 1
