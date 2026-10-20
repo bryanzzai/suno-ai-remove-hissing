@@ -44,7 +44,15 @@
                 <Slider x:Name="HarmonicProfileSlider" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="4" Value="2" TickFrequency="1"
                         IsSnapToTickEnabled="True" TickPlacement="BottomRight" ValueChanged="HarmonicProfileSlider_ValueChanged" />
                 <TextBlock x:Name="HarmonicProfileTextBlock" Grid.Row="1" Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" Text="Normal" />
-                <CheckBox x:Name="OverwriteCheckBox" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0" Content="Replace existing output files" />
+                <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <CheckBox x:Name="OverwriteCheckBox" VerticalAlignment="Center" Content="Replace existing output files" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Margin="0,0,8,0" VerticalAlignment="Center" Text="Output format" />
+                        <RadioButton x:Name="WavOutputRadioButton" GroupName="OutputFormat" IsChecked="True" Content="WAV" Margin="0,0,12,0" />
+                        <RadioButton x:Name="M4aOutputRadioButton" GroupName="OutputFormat" Content="M4A" />
+                    </StackPanel>
+                </Grid>
             </Grid>
         </GroupBox>
 
