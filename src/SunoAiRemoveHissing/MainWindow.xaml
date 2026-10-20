@@ -19,7 +19,7 @@
         </StackPanel>
 
         <Grid Grid.Row="1" Margin="0,0,0,12">
-            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition Width="155"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <TextBlock VerticalAlignment="Center" Text="Input folder" />
             <TextBox x:Name="InputPathTextBox" Grid.Column="1" MinHeight="32" Margin="0,0,8,5" VerticalContentAlignment="Center" />
@@ -27,9 +27,6 @@
             <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Output folder" />
             <TextBox x:Name="OutputPathTextBox" Grid.Row="1" Grid.Column="1" MinHeight="32" Margin="0,0,8,5" VerticalContentAlignment="Center" />
             <Button Grid.Row="1" Grid.Column="2" Padding="16,6" Margin="0,0,0,5" Content="Browse…" Click="BrowseOutput_Click" />
-            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="python.exe" />
-            <TextBox x:Name="PythonPathTextBox" Grid.Row="2" Grid.Column="1" MinHeight="32" Margin="0,0,8,0" VerticalContentAlignment="Center" />
-            <Button Grid.Row="2" Grid.Column="2" Padding="16,6" Content="Browse…" Click="BrowsePython_Click" />
         </Grid>
 
         <GroupBox Grid.Row="2" Header="Whole-mix effects" Padding="12" Margin="0,0,0,14">
