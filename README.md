@@ -53,20 +53,23 @@ Or run `START_WINDOWS.bat` from the repository root.
 
 ## Controls
 
-- **Harmonic de-fizzer** — finds unusually prominent narrow spectral ridges at 3.5–11 kHz relative to neighbouring frequency bins and reduces them by up to -6 dB. This first version is deliberately strong and does not claim to identify a singer's true fundamental; use its removed-signal WAV to hear whether it is removing metallic fizz or wanted musical material.
-- **Dynamic 1.8–4 kHz** — watches the whole mix and, when a short transient exceeds its local one-second median by 4 dB, reduces that band by up to -3 dB with a 250 ms release.
+- **Dynamic 1.8–4 kHz profile** — detects short transients and reduces that band. Normal is the proven original setting: +4 dB trigger above local median, max -3 dB, 250 ms release.
+- **Harmonic de-fizzer profile** — reduces unusually prominent narrow spectral ridges at 3.5–11 kHz. Normal is the proven original setting: up to -6 dB with the original ridge sensitivity.
+- **Profiles** — each effect has five fixed positions: **Off**, **Light**, **Normal**, **Strong**, **Brutal**. Normal is the default centre position. Light is deliberately only slightly milder; Strong and Brutal increase maximum reduction and sensitivity.
 - **Replace existing output files** — off by default; preserves previous result folders until explicitly enabled.
 
 The effects can be enabled together. Every selected song gets its own folder, preserving source subfolders, for example:
 
 ```text
 Output\Velvet Paradise [ IX]\
-  DYNAMIC_AND_HARMONIC.wav
-  REMOVED_BY_DYNAMIC_AND_HARMONIC.wav
-  DYNAMIC_AND_HARMONIC.json
+  Velvet Paradise [ IX ]_D&H.wav
+  Velvet Paradise [ IX ]_REMOVED_D&H.wav
+  Velvet Paradise [ IX ]_D&H.json
 ```
 
 The `REMOVED` file is always the exact original-minus-final difference for that specific combination.
+
+Short suffixes are `_D` for dynamic only, `_H` for harmonic only, and `_D&H` when both are active.
 
 ## Build a Windows executable
 
