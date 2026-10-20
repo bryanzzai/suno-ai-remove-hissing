@@ -117,6 +117,9 @@ public partial class MainWindow : Window
 
     private bool TryReadSettings(out int strength, out double blend, out int segment)
     {
+        strength = 0;
+        blend = 0;
+        segment = 0;
         var ok = int.TryParse(StrengthTextBox.Text, out strength) && strength is >= 1 and <= 6 &&
                  double.TryParse(BlendTextBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out blend) && blend is >= 0 and <= 1 &&
                  int.TryParse(SegmentTextBox.Text, out segment) && segment is >= 1 and <= 7;
