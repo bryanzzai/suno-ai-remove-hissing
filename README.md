@@ -1,6 +1,6 @@
 # Suno AI Remove Hissing
 
-Windows desktop batch tool for reducing metallic hiss and harsh upper-frequency artifacts in Suno tracks. It keeps the source files untouched and writes a cleaned WAV, a `REMOVED` WAV, and a JSON report for every selected song.
+Windows desktop batch tool for reducing metallic hiss and harsh upper-frequency artifacts in Suno tracks. It keeps the source files untouched and writes a cleaned WAV or M4A, a `REMOVED` WAV, and a JSON report for every selected song.
 
 ## What it does
 
@@ -57,6 +57,7 @@ Or run `START_WINDOWS.bat` from the repository root.
 - **Harmonic de-fizzer profile** — reduces unusually prominent narrow spectral ridges at 3.5–11 kHz. Normal is the proven original setting: up to -6 dB with the original ridge sensitivity.
 - **Profiles** — each effect has five fixed positions: **Off**, **Light**, **Normal**, **Strong**, **Brutal**. Normal is the default centre position. Light is deliberately only slightly milder; Strong and Brutal increase maximum reduction and sensitivity.
 - **Replace existing output files** — off by default; preserves previous result folders until explicitly enabled.
+- **Output format** — choose **WAV** for uncompressed 24-bit audio suitable for further work, or **M4A** for a new AAC file. M4A output copies metadata and embedded cover artwork from the source file. The `REMOVED` signal remains 24-bit WAV in both modes.
 
 The effects can be enabled together. Every selected song gets its own folder, preserving source subfolders, for example:
 
@@ -70,6 +71,8 @@ Output\Velvet Paradise [ IX]\
 The `REMOVED` file is always the exact original-minus-final difference for that specific combination.
 
 Short suffixes are `_D` for dynamic only, `_H` for harmonic only, and `_D&H` when both are active.
+
+When M4A is selected, only the cleaned file changes extension, for example `Velvet Paradise [ IX ]_D&H.m4a`; the matching `REMOVED` and JSON files remain WAV and JSON.
 
 ## Build a Windows executable
 
