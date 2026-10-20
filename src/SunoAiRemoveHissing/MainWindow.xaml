@@ -43,8 +43,8 @@
                 <TextBlock Grid.Column="4" VerticalAlignment="Center" Margin="18,0,0,0" Text="GPU segment (1–7 sec)" />
                 <TextBox x:Name="SegmentTextBox" Grid.Column="5" Text="7" VerticalContentAlignment="Center" />
                 <CheckBox x:Name="OverwriteCheckBox" Grid.Column="6" Margin="18,0,0,0" VerticalAlignment="Center" Content="Replace existing cleaned files" />
-                <CheckBox x:Name="TinCanTestCheckBox" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="7" Margin="0,12,0,0"
-                          Content="Raw tin-can test: apply -3 dB at 1.8–2.2 kHz and -1.5 dB at 2.2–4.0 kHz to accompaniment only. Vocal cleaning is skipped." />
+                <CheckBox x:Name="HarmonicDeFizzerCheckBox" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="7" Margin="0,12,0,0"
+                          Content="Harmonic de-fizzer: reduce unusually prominent narrow high-frequency ridges in the whole mix by up to -6 dB. Writes result, removed-signal WAV, and JSON report." />
                 <CheckBox x:Name="DynamicFullMixTestCheckBox" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="7" Margin="0,8,0,0"
                           Content="Dynamic whole-mix proof: detect strong 1.8–4 kHz transients and reduce that band by up to -3 dB for 250 ms. Writes result, removed-signal WAV, and JSON report. Demucs/GPU are not used in this test." />
             </Grid>
