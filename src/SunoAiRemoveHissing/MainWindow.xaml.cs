@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using Microsoft.Win32;
 using SunoAiRemoveHissing.Models;
@@ -8,6 +9,7 @@ namespace SunoAiRemoveHissing;
 
 public partial class MainWindow : Window
 {
+    private static readonly string[] ProfileNames = ["Off", "Light", "Normal", "Strong", "Brutal"];
     private readonly AudioLibraryScanner _scanner = new();
     private readonly CleaningEngine _engine = new();
     private CancellationTokenSource? _cts;
@@ -59,11 +61,15 @@ public partial class MainWindow : Window
             var output = OutputPathTextBox.Text.Trim();
             var found = await Task.Run(() => _scanner.Scan(input, output, _cts!.Token), _cts!.Token);
             Tracks.Clear();
-            foreach (var item in found) Tracks.Add(item);
-            CountTextBlock.Text = $"{Tracks.Count} files";
+            foreach (var item in found)
+            {
+                item.PropertyChanged += Track_PropertyChanged;
+                Tracks.Add(item);
+            }
+            UpdateSelectionCount();
             ProgressBar.Maximum = Math.Max(1, Tracks.Count);
             ProgressBar.Value = Tracks.Count;
-            StatusTextBlock.Text = Tracks.Count == 0 ? "No supported audio files found." : $"Scan complete. {Tracks.Count} files ready.";
+            StatusTextBlock.Text = Tracks.Count == 0 ? "No supported audio files found." : $"Scan complete. Tick the files to process.";
         }
         catch (OperationCanceledException) { StatusTextBlock.Text = "Scan cancelled."; }
         catch (Exception ex) { ShowError("Scan failed", ex); }
@@ -74,7 +80,9 @@ public partial class MainWindow : Window
     {
         if (Tracks.Count == 0) { ShowInfo("Scan a folder before starting cleanup."); return; }
         if (!ValidateFolders()) return;
-        if (DynamicFullMixTestCheckBox.IsChecked != true && HarmonicDeFizzerCheckBox.IsChecked != true)
+        var dynamicProfile = (int)DynamicProfileSlider.Value;
+        var harmonicProfile = (int)HarmonicProfileSlider.Value;
+        if (dynamicProfile == 0 && harmonicProfile == 0)
         {
             ShowInfo("Choose at least one whole-mix effect.");
             return;
@@ -92,9 +100,10 @@ public partial class MainWindow : Window
         {
             var progress = new Progress<string>(HandleEngineLine);
             await _engine.RunAsync(PythonPathTextBox.Text.Trim(), script, InputPathTextBox.Text.Trim(), OutputPathTextBox.Text.Trim(),
-                selected.Select(track => track.RelativePath), DynamicFullMixTestCheckBox.IsChecked == true,
-                HarmonicDeFizzerCheckBox.IsChecked == true, OverwriteCheckBox.IsChecked == true, progress, _cts!.Token);
+                selected.Select(track => track.RelativePath), dynamicProfile, harmonicProfile,
+                OverwriteCheckBox.IsChecked == true, progress, _cts!.Token);
             StatusTextBlock.Text = "Cleanup complete.";
+            UpdateSelectionCount(completed: true);
         }
         catch (OperationCanceledException) { StatusTextBlock.Text = "Cleanup cancelled."; }
         catch (Exception ex) { ShowError("Cleanup failed", ex); }
@@ -114,6 +123,38 @@ public partial class MainWindow : Window
         StatusTextBlock.Text = parts[5];
     }
 
+    private void Track_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(AudioItem.IsSelected) && _cts is null)
+            UpdateSelectionCount();
+    }
+
+    private void UpdateSelectionCount(bool completed = false)
+    {
+        var selected = Tracks.Count(track => track.IsSelected);
+        if (completed)
+        {
+            var done = Tracks.Count(track => track.IsSelected &&
+                (track.Status.StartsWith("Saved ", StringComparison.OrdinalIgnoreCase) ||
+                 track.Status.StartsWith("Skipped ", StringComparison.OrdinalIgnoreCase)));
+            CountTextBlock.Text = $"{done}/{Tracks.Count} de-noised";
+            return;
+        }
+        CountTextBlock.Text = $"{selected}/{Tracks.Count} selected";
+    }
+
+    private void DynamicProfileSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (DynamicProfileTextBlock is not null)
+            DynamicProfileTextBlock.Text = ProfileNames[(int)Math.Round(e.NewValue)];
+    }
+
+    private void HarmonicProfileSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (HarmonicProfileTextBlock is not null)
+            HarmonicProfileTextBlock.Text = ProfileNames[(int)Math.Round(e.NewValue)];
+    }
+
     private bool ValidateFolders()
     {
         if (!Directory.Exists(InputPathTextBox.Text.Trim())) { ShowInfo("Choose a valid input folder."); return false; }
@@ -124,12 +165,12 @@ public partial class MainWindow : Window
     private void BeginOperation()
     {
         _cts = new CancellationTokenSource();
-        ScanButton.IsEnabled = false; RunButton.IsEnabled = false; CancelButton.IsEnabled = true;
+        ScanButton.IsEnabled = false; RunButton.IsEnabled = false; CancelButton.IsEnabled = true; AudioGrid.IsEnabled = false;
     }
 
     private void EndOperation()
     {
-        ScanButton.IsEnabled = true; RunButton.IsEnabled = true; CancelButton.IsEnabled = false;
+        ScanButton.IsEnabled = true; RunButton.IsEnabled = true; CancelButton.IsEnabled = false; AudioGrid.IsEnabled = true;
         _cts?.Dispose(); _cts = null;
     }
 
