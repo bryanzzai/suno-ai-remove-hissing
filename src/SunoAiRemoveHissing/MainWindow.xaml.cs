@@ -87,7 +87,8 @@ public partial class MainWindow : Window
         {
             var progress = new Progress<string>(HandleEngineLine);
             await _engine.RunAsync(PythonPathTextBox.Text.Trim(), script, InputPathTextBox.Text.Trim(), OutputPathTextBox.Text.Trim(),
-                strength, blend, segment, OverwriteCheckBox.IsChecked == true, progress, _cts!.Token);
+                strength, blend, segment, TinCanTestCheckBox.IsChecked == true, OverwriteCheckBox.IsChecked == true,
+                progress, _cts!.Token);
             StatusTextBlock.Text = "Cleanup complete.";
         }
         catch (OperationCanceledException) { StatusTextBlock.Text = "Cleanup cancelled."; }
