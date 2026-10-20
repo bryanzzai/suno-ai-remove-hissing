@@ -3,7 +3,8 @@ namespace SunoAiRemoveHissing.Services;
 public sealed class CleaningEngine
 {
     public Task RunAsync(string pythonPath, string scriptPath, string inputRoot, string outputRoot, int strength,
-        double blend, int segment, bool tinCanTest, bool overwrite, IProgress<string>? output, CancellationToken cancellationToken)
+        double blend, int segment, bool tinCanTest, bool overwrite, bool dynamicFullMixTest,
+        IProgress<string>? output, CancellationToken cancellationToken)
     {
         if (!File.Exists(pythonPath)) throw new FileNotFoundException("Choose a valid Python executable.", pythonPath);
         if (!File.Exists(scriptPath)) throw new FileNotFoundException("The bundled SunoClean backend is missing.", scriptPath);
@@ -18,6 +19,7 @@ public sealed class CleaningEngine
             "--segment", segment.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };
         if (tinCanTest) arguments.Add("--tin-can-test");
+        if (dynamicFullMixTest) arguments.Add("--dynamic-full-mix-test");
         if (overwrite) arguments.Add("--force");
         return ProcessRunner.RunAsync(pythonPath, arguments, output, cancellationToken);
     }
