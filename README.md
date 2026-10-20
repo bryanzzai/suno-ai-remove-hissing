@@ -82,3 +82,17 @@ dotnet publish src\SunoAiRemoveHissing\SunoAiRemoveHissing.csproj -c Release -r 
 ```
 
 The published application still requires its Python environment and FFmpeg.
+
+## Local self-contained install
+
+Run this from PowerShell in the repository root to publish directly to `C:\Apps\SunoAiRemoveHissing`:
+
+```powershell
+.\INSTALL_LOCAL.ps1
+```
+
+It replaces only that exact application folder, publishes a self-contained Windows executable, includes `backend\SunoClean_AI.py`, and removes `.pdb` debug-symbol files. To use another application folder below `C:\Apps`:
+
+```powershell
+.\INSTALL_LOCAL.ps1 -InstallPath 'C:\Apps\MySunoDenoiser'
+```
