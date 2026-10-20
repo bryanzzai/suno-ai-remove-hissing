@@ -182,11 +182,11 @@ def output_path(output_root: Path, relative: Path, mode: str, output_format: str
     return (output_root / relative.parent / relative.stem / f"{relative.stem}{suffixes[mode]}.{output_format}").resolve()
 
 
-def clean_file(source: Path, destination: Path, dynamic_profile: int, harmonic_profile: int) -> None:
+def clean_file(source: Path, destination: Path, dynamic_profile: int, harmonic_profile: int, ffmpeg: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="sunoclean_") as raw_workspace:
         workspace = Path(raw_workspace)
         input_wav = workspace / "input.wav"
-        run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", source,
+        run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", source,
              "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", input_wav])
         rate, original = read_audio(input_wav)
         output = original
@@ -207,12 +207,12 @@ def clean_file(source: Path, destination: Path, dynamic_profile: int, harmonic_p
         intermediate = workspace / "repaired_float.wav"
         wavfile.write(intermediate, rate, output.astype(np.float32))
         staged = workspace / "final.wav"
-        run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", intermediate,
+        run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", intermediate,
              "-c:a", "pcm_s24le", staged])
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.suffix.lower() == ".m4a":
             # Processed audio is input 0; input 1 supplies source tags and cover art.
-            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
                  "-i", staged, "-i", source,
                  "-map", "0:a:0", "-map", "1:v?", "-map_metadata", "1",
                  "-c:a", "aac", "-b:a", "256k", "-c:v", "copy",
@@ -228,7 +228,7 @@ def clean_file(source: Path, destination: Path, dynamic_profile: int, harmonic_p
         else:
             raise RuntimeError("Could not derive the removed-signal file name.")
         removed_destination = destination.with_name(f"{removed_stem}.wav")
-        run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", removed_intermediate,
+        run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", removed_intermediate,
              "-c:a", "pcm_s24le", removed_destination])
         report_destination = destination.with_suffix(".json")
         report_destination.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -262,6 +262,7 @@ def main() -> int:
     parser.add_argument("--output-root", required=True, type=Path, help="Folder for cleaned output")
     parser.add_argument("--selected-list", required=True, type=Path,
                         help="UTF-8 text file containing selected paths relative to input root")
+    parser.add_argument("--ffmpeg", required=True, type=Path, help="Bundled ffmpeg.exe")
     parser.add_argument("--dynamic-profile", required=True, type=int, choices=range(0, 5),
                         help="0=Off, 1=Light, 2=Normal, 3=Strong, 4=Brutal")
     parser.add_argument("--harmonic-profile", required=True, type=int, choices=range(0, 5),
@@ -277,8 +278,8 @@ def main() -> int:
         parser.error("--selected-list must be an existing text file")
     if not arguments.dynamic_profile and not arguments.harmonic_profile:
         parser.error("Choose at least one whole-mix effect.")
-    if not shutil.which("ffmpeg"):
-        sys.exit("ERROR: ffmpeg was not found in PATH.")
+    if not arguments.ffmpeg.is_file():
+        parser.error("--ffmpeg must be an existing executable")
 
     input_root = arguments.input_root.resolve()
     output_root = arguments.output_root.resolve()
@@ -303,7 +304,7 @@ def main() -> int:
                 else "Applying dynamic profile" if arguments.dynamic_profile else "Applying harmonic profile")
         emit("running", index - 1, len(files), relative_text, f"{mode}: {relative.name}")
         try:
-            clean_file(source, destination, arguments.dynamic_profile, arguments.harmonic_profile)
+            clean_file(source, destination, arguments.dynamic_profile, arguments.harmonic_profile, arguments.ffmpeg)
             emit("done", index, len(files), relative_text, f"Saved {destination.name}")
         except Exception as exc:  # Keep the batch running and make the failure visible per track.
             failed += 1
